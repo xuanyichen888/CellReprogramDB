@@ -42,16 +42,18 @@ with st.sidebar:
 
     # Clear all button
     if st.button("✖ Clear all filters", use_container_width=True):
-        st.session_state["search"]        = ""
-        st.session_state["target"]        = []
-        st.session_state["source"]        = []
-        st.session_state["ft"]            = []
-        st.session_state["sp"]            = []
-        st.session_state["conf"]          = ["high", "medium"]
-        st.session_state["pt"]            = ["research"]
-        st.session_state["journal_search"]= ""
-        st.session_state["year_range"]    = (int(df["year"][df["year"]>0].min()),
-                                             int(df["year"].max()))
+        st.session_state["search"]         = ""
+        st.session_state["target"]         = []
+        st.session_state["source"]         = []
+        st.session_state["ft"]             = []
+        st.session_state["sp"]             = []
+        st.session_state["conf"]           = ["high", "medium"]
+        st.session_state["pt"]             = ["research"]
+        st.session_state["journal_search"] = ""
+        st.session_state["hide_dupes"]     = True
+        st.session_state["hide_no_factors"]= True
+        st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
+                                              int(df["year"].max()))
         st.rerun()
 
     st.divider()
@@ -91,6 +93,16 @@ with st.sidebar:
                                    key="journal_search",
                                    value=st.session_state.get("journal_search", ""))
 
+    st.divider()
+    hide_dupes      = st.checkbox("Hide duplicate recipes",
+                                   value=st.session_state.get("hide_dupes", True),
+                                   key="hide_dupes",
+                                   help="Keep only the earliest research paper per unique recipe")
+    hide_no_factors = st.checkbox("Hide 'factors not specified'",
+                                   value=st.session_state.get("hide_no_factors", True),
+                                   key="hide_no_factors",
+                                   help="Exclude recipes where no specific factors were identified")
+
     # Year range
     year_vals = df["year"][df["year"] > 0]
     min_year  = int(year_vals.min()) if len(year_vals) else 2000
@@ -100,7 +112,7 @@ with st.sidebar:
                             value=default_yr, key="year_range")
 
     st.divider()
-    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.5")
+    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.6")
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
 filtered = df.copy()
@@ -131,6 +143,12 @@ if pt_sel:
 
 if journal_search:
     filtered = filtered[filtered["journal"].str.contains(journal_search, case=False, na=False)]
+
+if hide_dupes and "is_duplicate" in filtered.columns:
+    filtered = filtered[filtered["is_duplicate"].astype(str).str.lower() != "true"]
+
+if hide_no_factors:
+    filtered = filtered[filtered["factors"] != "not specified"]
 
 filtered = filtered[
     (filtered["year"] == 0) |
