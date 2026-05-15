@@ -1,0 +1,19 @@
+# 大文件（不上传到GitHub）
+papers.csv
+fulltext.csv
+fulltext_done.txt
+pmc_available.csv
+*.bak
+*.tmp
+
+# checkpoint文件
+checkpoint_*.json
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# 系统文件
+.DS_Store
+~$*
