@@ -17,6 +17,13 @@ def load_data():
         df["year"] = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(int)
     else:
         df["year"] = 0
+    # Merge journal names
+    try:
+        journals = pd.read_csv("journals.csv", dtype=str).fillna("")
+        df = df.merge(journals, on="pmid", how="left")
+        df["journal"] = df["journal"].fillna("")
+    except FileNotFoundError:
+        df["journal"] = ""
     return df
 
 df = load_data()
@@ -35,15 +42,16 @@ with st.sidebar:
 
     # Clear all button
     if st.button("✖ Clear all filters", use_container_width=True):
-        st.session_state["search"]    = ""
-        st.session_state["target"]    = []
-        st.session_state["source"]    = []
-        st.session_state["ft"]        = []
-        st.session_state["sp"]        = []
-        st.session_state["conf"]      = ["high", "medium"]
-        st.session_state["pt"]        = ["research"]
-        st.session_state["year_range"]= (int(df["year"][df["year"]>0].min()),
-                                         int(df["year"].max()))
+        st.session_state["search"]        = ""
+        st.session_state["target"]        = []
+        st.session_state["source"]        = []
+        st.session_state["ft"]            = []
+        st.session_state["sp"]            = []
+        st.session_state["conf"]          = ["high", "medium"]
+        st.session_state["pt"]            = ["research"]
+        st.session_state["journal_search"]= ""
+        st.session_state["year_range"]    = (int(df["year"][df["year"]>0].min()),
+                                             int(df["year"].max()))
         st.rerun()
 
     st.divider()
@@ -79,6 +87,10 @@ with st.sidebar:
                              key="pt",
                              default=st.session_state.get("pt",["research"]))
 
+    journal_search = st.text_input("Journal (keyword)",
+                                   key="journal_search",
+                                   value=st.session_state.get("journal_search", ""))
+
     # Year range
     year_vals = df["year"][df["year"] > 0]
     min_year  = int(year_vals.min()) if len(year_vals) else 2000
@@ -88,7 +100,7 @@ with st.sidebar:
                             value=default_yr, key="year_range")
 
     st.divider()
-    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.4")
+    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.5")
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
 filtered = df.copy()
@@ -117,6 +129,9 @@ if conf_sel:
 if pt_sel:
     filtered = filtered[filtered["paper_type"].isin(pt_sel)]
 
+if journal_search:
+    filtered = filtered[filtered["journal"].str.contains(journal_search, case=False, na=False)]
+
 filtered = filtered[
     (filtered["year"] == 0) |
     ((filtered["year"] >= year_range[0]) & (filtered["year"] <= year_range[1]))
@@ -135,7 +150,7 @@ st.divider()
 display_df = filtered[[
     "pmid","source_cell","target_cell",
     "factors","factor_type","species","year",
-    "confidence","paper_type","evidence_sentence",
+    "journal","confidence","paper_type","evidence_sentence",
 ]].copy()
 
 # PMID → clickable number only
@@ -158,6 +173,7 @@ st.dataframe(
         "species":           st.column_config.TextColumn("Species",     width=80),
         "year":              st.column_config.NumberColumn("Year",      width=65,
                                                             format="%d"),
+        "journal":           st.column_config.TextColumn("Journal",     width=200),
         "confidence":        st.column_config.TextColumn("Conf.",       width=70),
         "paper_type":        st.column_config.TextColumn("Paper",       width=75),
         "evidence_sentence": st.column_config.TextColumn("Evidence sentence", width=380),
