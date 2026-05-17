@@ -50,8 +50,9 @@ with st.sidebar:
         st.session_state["conf"]           = ["high", "medium"]
         st.session_state["pt"]             = ["research"]
         st.session_state["journal_search"] = ""
-        st.session_state["hide_dupes"]     = True
-        st.session_state["hide_no_factors"]= True
+        st.session_state["hide_dupes"]      = True
+        st.session_state["hide_no_factors"] = True
+        st.session_state["hide_single_tf"]  = True
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
         st.rerun()
@@ -102,6 +103,10 @@ with st.sidebar:
                                    value=st.session_state.get("hide_no_factors", True),
                                    key="hide_no_factors",
                                    help="Exclude recipes where no specific factors were identified")
+    hide_single_tf  = st.checkbox("Hide single-TF recipes",
+                                   value=st.session_state.get("hide_single_tf", True),
+                                   key="hide_single_tf",
+                                   help="Single-TF entries may be studying one member of a complete recipe (e.g. SOX2 in Yamanaka), not a standalone recipe")
 
     # Year range
     year_vals = df["year"][df["year"] > 0]
@@ -112,7 +117,7 @@ with st.sidebar:
                             value=default_yr, key="year_range")
 
     st.divider()
-    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.6")
+    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.7")
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
 filtered = df.copy()
@@ -149,6 +154,9 @@ if hide_dupes and "is_duplicate" in filtered.columns:
 
 if hide_no_factors:
     filtered = filtered[filtered["factors"] != "not specified"]
+
+if hide_single_tf and "single_tf_flag" in filtered.columns:
+    filtered = filtered[filtered["single_tf_flag"].astype(str).str.lower() != "true"]
 
 filtered = filtered[
     (filtered["year"] == 0) |
