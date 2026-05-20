@@ -66,7 +66,7 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip().upper())
 
 
-def classify(factors_str: str) -> str:
+def classify(factors_str: str, target_cell: str = "", source_cell: str = "") -> str:
     """Return 'standalone_valid', 'cocktail_member', or 'unclear'."""
     f = _norm(factors_str)
     # Remove common gene-name punctuation variants for matching
@@ -103,6 +103,24 @@ def classify(factors_str: str) -> str:
     if re.search(r"\bDLX2\b", f):
         return "standalone_valid"
 
+    # Context-dependent factors: check target/source to decide
+    tgt = target_cell.lower()
+    if re.search(r"\bGATA4\b", f):
+        # Standalone if target is cardiomyocyte or cardiac; otherwise unclear
+        return "standalone_valid" if re.search(r"cardio|heart|cardiomyocyte", tgt) else "unclear"
+    if re.search(r"\bHNF4A\b|\bHNF4ALPHA\b|\bHNF4α\b", f):
+        # Standalone if target is hepatocyte/liver cell
+        return "standalone_valid" if re.search(r"hepato|liver|hepatocyte", tgt) else "unclear"
+    if re.search(r"\bSOX9\b", f):
+        # Standalone if target is chondrocyte/cartilage
+        return "standalone_valid" if re.search(r"chondro|cartilage", tgt) else "unclear"
+    if re.search(r"\bPTF1A\b", f):
+        # Pancreatic lineage
+        return "standalone_valid" if re.search(r"pancrea|acinar|ductal|beta.?cell", tgt) else "unclear"
+    if re.search(r"\bFOXA2\b", f):
+        # Usually a member of hepatocyte cocktail; standalone unclear
+        return "unclear"
+
     # Cocktail member check
     for cm in COCKTAIL_MEMBERS:
         if _norm(cm) == f:
@@ -133,7 +151,9 @@ def main():
         df["single_tf_status"] = ""
 
     # Classify only single-TF entries
-    df.loc[is_single, "single_tf_status"] = df.loc[is_single, "factors"].apply(classify)
+    df.loc[is_single, "single_tf_status"] = df.loc[is_single].apply(
+        lambda r: classify(r["factors"], r.get("target_cell",""), r.get("source_cell","")), axis=1
+    )
 
     # Clear status for non-single-TF entries
     df.loc[~is_single, "single_tf_status"] = ""

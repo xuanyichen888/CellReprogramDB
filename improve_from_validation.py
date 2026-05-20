@@ -16,13 +16,15 @@ FILE = "recipes_master_v2.csv"
 
 # 1. 引用前人工作
 PRIOR_WORK_PATTERNS = [
-    r'\bpreviously (reported|showed|demonstrated|described|published|shown)\b',
+    r'\bpreviously (reported|showed|demonstrated|described|published|shown|established|developed|generated|identified)\b',
     r'\brecently[,\s]+(we|our group)\b',
-    r'\bwe (previously|earlier|recently) (showed|reported|demonstrated|found|described)\b',
+    r'\bwe (previously|earlier|recently) (showed|reported|demonstrated|found|described|established|developed|generated|identified)\b',
     r'\bprior (work|study|studies|publication)\b',
     r'\bin (our|a) previous (study|work|publication|report)\b',
     r'\bhas been (reported|described|shown|demonstrated) (previously|before)\b',
-    r'\bwas (previously|recently) (reported|described|shown)\b',
+    r'\bwas (previously|recently) (reported|described|shown|established)\b',
+    r'\bwe (have )?previously (established|developed|generated|created|shown|demonstrated)\b',
+    r'\bour (previous|prior|earlier) (work|study|studies|publication|report|protocol)\b',
 ]
 
 # 2. 纯方法句（不含结果的描述）
@@ -33,16 +35,22 @@ METHODS_PATTERNS = [
     r'\bto (investigate|examine|test|study|determine|explore)\s+whether\b',
     r'^(here|in this study)[,\s]+we (investigate|examine|present) the (generation|development|establishment|protocol)',
     r'^(here|in this study)[,\s]+we (describe|report) the (development|establishment|protocol)',
+    r'\baim(ed)? to (investigate|examine|study|determine|understand|explore|assess|evaluate)\b',
+    r'^we aim(ed)? to\b',
+    r'\bthe (purpose|objective|goal) of (this|our) (study|work|paper|research) was\b',
 ]
 
 # 3. 阴性结果
+# NOTE: Only marks needs_review; human confirmation required before remove.
+# Pattern change: use reprogram(m?) to catch both 'reprogram' and 'reprogramming'.
 NEGATIVE_PATTERNS = [
-    r'\bdoes? not\b.*\b(reprogramm|iPSC|colony|colonies|convert|induce|generate)\b',
-    r'\b(fail(ed)?|unable|could not|cannot|did not)\b.*\b(reprogramm|convert|induce|generate|produce)\b',
-    r'\b(no|lack of)\b.*\b(iPSC|colony|colonies|reprogramming|conversion)\b',
-    r'\b(inefficient|ineffective)\b.*\b(reprogramm|convert)\b',
+    r'\bdoes? not\b.*\b(reprogramm?|iPSC|colony|colonies|convert|induce|generate)\b',
+    r'\b(fail(ed)?|unable|could not|cannot|did not)\b.*\b(reprogramm?|convert|induce|generate|produce|differentiat)\b',
+    r'\b(no|lack of)\b.*\b(iPSC|colony|colonies|reprogramming?|conversion)\b',
+    r'\b(inefficient|ineffective)\b.*\b(reprogramm?|convert)\b',
     r'\bnot elicit\b',
     r'\bnot (generate|produce|form|yield)\b.*\b(iPSC|colony|neuron|cardiomyocyte)\b',
+    r'\bfailed to (completely |fully )?(reprogram|convert|induce|differentiate)\b',
 ]
 
 # 4. 模糊因子（medium + abstract）
@@ -77,10 +85,12 @@ def main():
         if col not in df.columns:
             df[col] = ""
 
-    # 只处理默认显示的条目（排除已标记的）
+    # 只处理未被人工确认/解决的条目
+    # 排除：重复条目、已被操作的条目、以及已手动 resolve 的条目（validation_resolution 以 "resolved_" 开头）
     already_handled = (
         (df["is_duplicate"].astype(str).str.lower() == "true") |
-        (df["validation_action"].isin(["remove", "hide_incomplete_recipe", "hide_single_tf"]))
+        (df["validation_action"].isin(["remove", "hide_incomplete_recipe", "hide_single_tf", "mark_duplicate"])) |
+        (df["validation_resolution"].str.startswith("resolved_", na=False))
     )
     active = ~already_handled
 

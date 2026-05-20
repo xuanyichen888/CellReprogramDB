@@ -21,7 +21,7 @@ OUTPUT_FIELDS = [
     "factors", "factor_type",
     "species", "culture_condition",
     "confidence", "paper_type", "notes",
-    "source", "evidence_sentence",
+    "source", "evidence_sentence", "evidence_quality",
 ]
 
 SYSTEM_PROMPT = """\
@@ -159,12 +159,22 @@ def main():
                 if raw.startswith("json"): raw = raw[4:]
             result   = json.loads(raw.strip())
             evidence = result.get("evidence_sentence", "")
+            quality  = result.get("quality", "good").lower().strip()
         except Exception as e:
             print(f"错误: {e}")
             evidence = ""
+            quality  = "none"
+
+        # Auto-flag weak or missing evidence so downstream QA can review
+        needs_review = "True" if quality in ("weak", "none") else "False"
 
         done[idx] = evidence
-        row = dict(recipe); row["evidence_sentence"] = evidence
+        row = dict(recipe)
+        row["evidence_sentence"] = evidence
+        row["evidence_quality"]  = quality
+        row["validation_needs_review"] = row.get("validation_needs_review", "False") or needs_review
+        if quality in ("weak", "none"):
+            row["validation_resolution"] = "evidence_quality_" + quality
         writer.writerow(row)
         save_checkpoint(done)
         processed += 1

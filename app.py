@@ -53,7 +53,7 @@ SCOPE_LABELS = {
     "unclear": "Unclear",
 }
 
-HIDDEN_VALIDATION_ACTIONS = {"remove", "hide_incomplete_recipe"}
+HIDDEN_VALIDATION_ACTIONS = {"remove", "hide_incomplete_recipe", "hide_single_tf"}
 
 
 def factors_are_unspecified(value: str) -> bool:

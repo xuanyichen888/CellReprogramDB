@@ -25,8 +25,12 @@ OUTPUT_FIELDS = [
     "pmid", "source_cell", "target_cell",
     "factors", "factor_type",
     "species", "culture_condition",
-    "confidence", "paper_type", "notes",
+    "confidence", "paper_type",
+    "recipe_status", "notes",
 ]
+
+# recipe_status values that should NOT be written to the database
+SKIP_RECIPE_STATUS = {"failed", "prior_work", "method_only"}
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """\
@@ -234,7 +238,14 @@ def main():
         else:
             paper_type = result.get("paper_type", "")
             rows = []
+            skipped_status = 0
             for entry in result["entries"]:
+                recipe_status = entry.get("recipe_status", "successful").lower().strip()
+                # Skip entries the model classified as non-successful
+                if recipe_status in SKIP_RECIPE_STATUS:
+                    skipped_status += 1
+                    print(f"  ↳ skipped [{recipe_status}]: {entry.get('source_cell','')} → {entry.get('target_cell','')}")
+                    continue
                 rows.append({
                     "pmid":              pmid,
                     "source_cell":       entry.get("source_cell", ""),
@@ -245,11 +256,14 @@ def main():
                     "culture_condition": entry.get("culture_condition", ""),
                     "confidence":        entry.get("confidence", ""),
                     "paper_type":        paper_type,
+                    "recipe_status":     recipe_status,
                     "notes":             entry.get("notes", ""),
                 })
-            append_rows(rows)
-            extracted += len(rows)
-            print(f"extracted {len(rows)} recipe(s)  [{paper_type}]")
+            if rows:
+                append_rows(rows)
+                extracted += len(rows)
+            suffix = f" (skipped {skipped_status} non-successful)" if skipped_status else ""
+            print(f"extracted {len(rows)} recipe(s)  [{paper_type}]{suffix}")
 
         processed.add(pmid)
         save_checkpoint(processed, CHECKPOINT)
