@@ -31,7 +31,8 @@ METHODS_PATTERNS = [
     r'\bwere used to (investigate|examine|test|study|determine|evaluate|assess)\b',
     r'\bwere (transduced|transfected|infected|treated)\s+with\b(?!.*(?:result|showed|demonstrated|induced|generated|produced|converted|reprogrammed|gave rise))',
     r'\bto (investigate|examine|test|study|determine|explore)\s+whether\b',
-    r'^(here|in this study)[,\s]+we (describe|report|present|investigate|examine) the (generation|development|establishment|protocol)',
+    r'^(here|in this study)[,\s]+we (investigate|examine|present) the (generation|development|establishment|protocol)',
+    r'^(here|in this study)[,\s]+we (describe|report) the (development|establishment|protocol)',
 ]
 
 # 3. 阴性结果
@@ -107,17 +108,19 @@ def main():
     )
     print(f"Fix 2 - methods-only evidence: {n2} entries flagged needs_review")
 
-    # ── Fix 3: 阴性结果 ──────────────────────────────────────────────────
+    # ── Fix 3: 疑似阴性结果 → 标 needs_review，人工确认后再决定是否 remove ─────
+    # NOTE: negative patterns can fire on false positives (e.g., "no gene was targeted
+    # more than once" or "failed" referring to the control arm). Mark needs_review,
+    # not remove, so each entry is confirmed individually.
     mask3 = active & ev.apply(lambda x: matches_any(x, NEGATIVE_PATTERNS))
     n3 = mask3.sum()
-    df.loc[mask3, "validation_action"] = "remove"
-    df.loc[mask3, "validation_needs_review"] = "False"
-    df.loc[mask3, "validation_resolution"] = "negative_result"
+    df.loc[mask3, "validation_needs_review"] = "True"
+    df.loc[mask3, "validation_resolution"] = "possible_negative_needs_review"
     df.loc[mask3, "validation_notes"] = df.loc[mask3, "validation_notes"].apply(
         lambda x: (x + " | " if x else "") +
-        "Evidence sentence describes a failed/negative reprogramming result."
+        "Evidence sentence may describe a failed/negative result — requires manual confirmation before removal."
     )
-    print(f"Fix 3 - negative results:      {n3} entries marked remove")
+    print(f"Fix 3 - possible negatives:    {n3} entries flagged needs_review")
 
     # ── Fix 4: medium + abstract + 模糊因子 ─────────────────────────────
     mask4 = (

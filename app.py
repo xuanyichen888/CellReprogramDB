@@ -14,6 +14,7 @@ def load_data():
     df = pd.read_csv("recipes_master_v2.csv", dtype=str).fillna("")
     for col, default in {
         "single_tf_flag": "False",
+        "single_tf_status": "",
         "conversion_scope": "unclear",
         "duplicate_reason": "",
         "preferred_pmid": "",
@@ -86,11 +87,12 @@ with st.sidebar:
         st.session_state["pt"]             = ["research"]
         st.session_state["scope"]          = []
         st.session_state["journal_search"] = ""
-        st.session_state["hide_dupes"]      = True
-        st.session_state["hide_no_factors"] = True
-        st.session_state["hide_single_tf"]  = True
+        st.session_state["hide_dupes"]       = True
+        st.session_state["hide_no_factors"]  = True
+        st.session_state["hide_cocktail_tf"] = True
         st.session_state["hide_validation_rejected"] = True
-        st.session_state["show_validation_review"] = False
+        st.session_state["hide_needs_review"]        = True
+        st.session_state["show_validation_review"]   = False
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
         st.rerun()
@@ -150,10 +152,13 @@ with st.sidebar:
                                    value=st.session_state.get("hide_no_factors", True),
                                    key="hide_no_factors",
                                    help="Exclude recipes where no specific factors were identified")
-    hide_single_tf  = st.checkbox("Hide single-TF recipes",
-                                   value=st.session_state.get("hide_single_tf", True),
-                                   key="hide_single_tf",
-                                   help="Single-TF entries may be studying one member of a complete recipe (e.g. SOX2 in Yamanaka), not a standalone recipe")
+    hide_cocktail_tf = st.checkbox(
+        "Hide single-TF cocktail members",
+        value=st.session_state.get("hide_cocktail_tf", True),
+        key="hide_cocktail_tf",
+        help="Hide entries where a single TF is a known member of a larger cocktail (e.g., SOX2 alone in an OSKM study). "
+             "Standalone single-TF recipes (NGN2, ASCL1, ETV2, etc.) are always shown.",
+    )
 
     with st.expander("Validation QA", expanded=False):
         hide_validation_rejected = st.checkbox(
@@ -161,6 +166,13 @@ with st.sidebar:
             value=st.session_state.get("hide_validation_rejected", True),
             key="hide_validation_rejected",
             help="Hide rows manually rejected or marked incomplete after v3 validation/known-issue QA",
+        )
+        hide_needs_review = st.checkbox(
+            "Hide unverified evidence entries",
+            value=st.session_state.get("hide_needs_review", True),
+            key="hide_needs_review",
+            help="Hide entries whose evidence sentence was flagged as a methods description or prior-work citation. "
+                 "The recipe may be valid but hasn't been independently confirmed.",
         )
         show_validation_review = st.checkbox(
             "Show validation needs-review only",
@@ -226,8 +238,15 @@ if hide_dupes and not show_validation_review and "is_duplicate" in filtered.colu
 if hide_no_factors and not show_validation_review:
     filtered = filtered[~filtered["factors"].apply(factors_are_unspecified)]
 
-if hide_single_tf and not show_validation_review and "single_tf_flag" in filtered.columns:
-    filtered = filtered[filtered["single_tf_flag"].astype(str).str.lower() != "true"]
+if hide_cocktail_tf and not show_validation_review and "single_tf_status" in filtered.columns:
+    # Only hide entries explicitly classified as cocktail members; show standalone and unclear
+    filtered = filtered[filtered["single_tf_status"] != "cocktail_member"]
+elif "hide_single_tf" in st.session_state:
+    # Legacy fallback for old session state key
+    pass
+
+if hide_needs_review and not show_validation_review:
+    filtered = filtered[filtered["validation_needs_review"].apply(is_true).eq(False)]
 
 if hide_validation_rejected and not show_validation_review:
     rejected = (
