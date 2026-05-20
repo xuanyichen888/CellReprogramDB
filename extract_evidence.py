@@ -166,9 +166,9 @@ def main():
                     {"role": "user",   "content": user_msg},
                 ],
                 temperature=0.0,
-                max_tokens=512,
+                max_tokens=4096,
             )
-            raw = resp.choices[0].message.content.strip()
+            raw = (resp.choices[0].message.content or "").strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"): raw = raw[4:]

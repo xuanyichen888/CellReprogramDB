@@ -1,5 +1,5 @@
 """
-Re-extract evidence sentences for the 146 'needs_review' entries
+Re-extract evidence sentences for the 'needs_review' entries
 using an improved prompt that explicitly avoids:
   1. Pure methods/setup sentences (cells were transduced with...)
   2. Sentences that cite prior/published work (we previously showed...)
@@ -11,6 +11,7 @@ After re-extraction:
 
 import json
 import os
+import re
 import time
 import shutil
 
@@ -21,7 +22,8 @@ API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = "https://api.deepseek.com"
 MODEL    = "deepseek-v4-flash"
 FILE     = "recipes_master_v2.csv"
-SLEEP    = 0.8
+SLEEP    = 1.0
+MAX_RETRIES = 3
 
 # ── Improved evidence extraction prompt ──────────────────────────────────────
 SYSTEM_PROMPT = """\
@@ -33,8 +35,7 @@ find the single best sentence that directly demonstrates the conversion was succ
 Respond ONLY with valid JSON:
 {
   "evidence_sentence": "...",
-  "quality": "good|weak|none",
-  "reason": "one sentence explaining your choice"
+  "quality": "good|weak|none"
 }
 
 REQUIRED: The chosen sentence MUST describe a RESULT or OUTCOME, such as:
@@ -62,8 +63,17 @@ Scoring guide:
   quality="weak"  — sentence partially supports the recipe (names only 1-2 components, or uses indirect language)
   quality="none"  — no sentence in the text directly supports the recipe as described; return evidence_sentence=""
 
-Return the exact sentence copied word-for-word from the text. Do NOT paraphrase.
+Return the exact sentence copied word-for-word from the text. Do NOT paraphrase. Do NOT include a "reason" field.
 """
+
+
+def strip_html(text: str) -> str:
+    """Remove HTML tags and decode common HTML entities."""
+    text = re.sub(r'<[^>]+>', '', text)
+    text = text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    text = text.replace('&quot;', '"').replace('&#39;', "'").replace('&nbsp;', ' ')
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 def append_note(existing: str, note: str) -> str:
@@ -74,34 +84,62 @@ def append_note(existing: str, note: str) -> str:
     return f"{existing} || {note}" if existing else note
 
 
-def call_api(client, recipe: dict, text: str) -> dict:
+def call_api(client: OpenAI, recipe: dict, text: str) -> dict:
+    """Call API with retry logic. Returns dict with evidence_sentence, quality, reason."""
+    text_clean = strip_html(text[:10000])
     user_msg = (
         f"Recipe:\n"
         f"  source_cell: {recipe['source_cell']}\n"
         f"  target_cell: {recipe['target_cell']}\n"
         f"  factors: {recipe['factors']}\n\n"
-        f"Original text:\n{text[:10000]}"
+        f"Original text:\n{text_clean}"
     )
-    resp = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_msg},
-        ],
-        temperature=0.0,
-        max_tokens=512,
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_msg},
+                ],
+                temperature=0.0,
+                max_tokens=4096,
+            )
+            finish_reason = resp.choices[0].finish_reason
+            raw = (resp.choices[0].message.content or "").strip()
+
+            if not raw:
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise ValueError(f"Empty API response after {MAX_RETRIES} attempts (finish_reason={finish_reason})")
+
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            return json.loads(raw.strip())
+
+        except (json.JSONDecodeError, ValueError) as e:
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+
+    raise RuntimeError("call_api: exhausted retries")
 
 
 def main():
     if not API_KEY:
         raise SystemExit("请先运行: export DEEPSEEK_API_KEY=sk-...")
+
+    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
     df = pd.read_csv(FILE, dtype=str).fillna("")
 
@@ -113,7 +151,9 @@ def main():
     fulltext_map = {}
     if os.path.exists("fulltext.csv"):
         for row in pd.read_csv("fulltext.csv", dtype=str).fillna("").to_dict("records"):
-            fulltext_map[row["pmid"]] = (row.get("methods_text","") + " " + row.get("results_text","")).strip()
+            fulltext_map[row["pmid"]] = (
+                row.get("methods_text", "") + " " + row.get("results_text", "")
+            ).strip()
 
     # Target rows: needs_review = True, not already removed/hidden
     target = df[
@@ -122,20 +162,20 @@ def main():
     ].copy()
 
     print(f"Target needs_review entries: {len(target)}")
-    print(f"By resolution:")
+    print("By resolution:")
     print(target["validation_resolution"].value_counts().to_string())
     print()
 
-    updated    = 0
-    no_better  = 0
-    errors     = 0
+    updated   = 0
+    no_better = 0
+    errors    = 0
 
     for idx in target.index:
         row  = df.loc[idx]
         pmid = row["pmid"]
         src  = row.get("source", "abstract")
 
-        # Get source text
+        # Get source text — prefer fulltext, fallback to abstract
         if src == "fulltext" and pmid in fulltext_map:
             text = fulltext_map[pmid]
         else:
@@ -146,49 +186,61 @@ def main():
             no_better += 1
             continue
 
-        print(f"  [{idx}] PMID {pmid} | {row['source_cell'][:20]} -> {row['target_cell'][:20]} ... ", end="", flush=True)
+        print(f"  [{idx}] PMID {pmid} | {row['source_cell'][:20]} -> {row['target_cell'][:20]} ... ",
+              end="", flush=True)
 
         try:
-            result = call_api(client if 'client' in dir() else (
-                setattr(__builtins__, '_cl', OpenAI(api_key=API_KEY, base_url=BASE_URL)) or
-                OpenAI(api_key=API_KEY, base_url=BASE_URL)
-            ), row.to_dict(), text)
+            result  = call_api(client, row.to_dict(), text)
             new_ev  = result.get("evidence_sentence", "").strip()
             quality = result.get("quality", "none")
-            reason  = result.get("reason", "")
         except Exception as e:
             print(f"ERROR: {e}")
             errors += 1
             time.sleep(3)
             continue
 
+        # If abstract gave no good result, try fulltext as fallback
+        if quality != "good" and src != "fulltext" and pmid in fulltext_map:
+            ft_text = fulltext_map[pmid]
+            if ft_text.strip():
+                print(f"[fallback→fulltext] ", end="", flush=True)
+                try:
+                    ft_result  = call_api(client, row.to_dict(), ft_text)
+                    ft_ev      = ft_result.get("evidence_sentence", "").strip()
+                    ft_quality = ft_result.get("quality", "none")
+                    if ft_quality == "good" or (ft_quality == "weak" and quality == "none"):
+                        new_ev  = ft_ev
+                        quality = ft_quality
+                        print(f"(quality={ft_quality}) ", end="", flush=True)
+                except Exception as e:
+                    print(f"[fulltext fallback error: {e}] ", end="", flush=True)
+                time.sleep(SLEEP)
+
         old_ev = str(row.get("evidence_sentence", "")).strip()
 
         if quality == "good" and new_ev and new_ev != old_ev:
-            df.at[idx, "evidence_sentence"] = new_ev
+            df.at[idx, "evidence_sentence"]      = new_ev
             df.at[idx, "validation_needs_review"] = "False"
-            df.at[idx, "validation_resolution"] = "resolved_evidence_updated_v2"
-            df.at[idx, "validation_notes"] = append_note(
-                row["validation_notes"],
-                f"Evidence updated (v2 prompt): {reason}"
+            df.at[idx, "validation_resolution"]   = "resolved_evidence_updated_v2"
+            df.at[idx, "validation_notes"]        = append_note(
+                row["validation_notes"], "Evidence updated (v2 prompt)"
             )
             print(f"✓ UPDATED (quality={quality})")
             updated += 1
         elif quality == "weak" and new_ev and new_ev != old_ev:
             df.at[idx, "evidence_sentence"] = new_ev
-            df.at[idx, "validation_resolution"] = df.at[idx, "validation_resolution"]  # keep
-            df.at[idx, "validation_notes"] = append_note(
+            df.at[idx, "validation_notes"]  = append_note(
                 row["validation_notes"],
-                f"Evidence replaced with best-available weak sentence (v2 prompt): {reason}"
+                "Evidence replaced with best-available weak sentence (v2 prompt)"
             )
-            print(f"~ weak updated")
+            print("~ weak updated")
             updated += 1
         else:
             df.at[idx, "validation_notes"] = append_note(
                 row["validation_notes"],
-                f"Re-extraction v2: still no good evidence sentence in source text. {reason}"
+                "Re-extraction v2: still no good evidence sentence in abstract or fulltext."
             )
-            print(f"✗ no better sentence")
+            print("✗ no better sentence")
             no_better += 1
 
         time.sleep(SLEEP)
@@ -201,11 +253,11 @@ def main():
     # Recount default view
     shown = df[
         (df["is_duplicate"].str.lower() != "true") &
-        (~df["validation_action"].isin(["remove","hide_incomplete_recipe","hide_single_tf"])) &
+        (~df["validation_action"].isin(["remove", "hide_incomplete_recipe", "hide_single_tf"])) &
         (df["factors"] != "not specified") &
         (df["single_tf_flag"].str.lower() != "true") &
         (df["paper_type"] == "research") &
-        (df["confidence"].isin(["high","medium"]))
+        (df["confidence"].isin(["high", "medium"]))
     ]
     print(f"默认显示条目数: {len(shown)}")
 
@@ -215,5 +267,4 @@ def main():
 
 
 if __name__ == "__main__":
-    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
     main()

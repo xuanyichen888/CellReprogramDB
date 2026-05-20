@@ -87,7 +87,7 @@ for col in ANNOTATION_COLS:
 # 输出列
 COLS = ["no", "pmid", "title", "source_cell", "target_cell",
         "factors", "factor_type", "confidence", "stratum",
-        "source", "single_tf_flag", "pubmed_url", "evidence_sentence",
+        "source", "conversion_scope", "single_tf_flag", "pubmed_url", "evidence_sentence",
         "abstract"] + ANNOTATION_COLS
 
 out = sample[[c for c in COLS if c in sample.columns]].copy()
@@ -104,8 +104,9 @@ known = df[df["pmid"].isin(KNOWN_ISSUES)].copy()
 known.insert(0, "known_issue_note", known["pmid"].map(KNOWN_ISSUES))
 known = known[[
     "known_issue_note", "pmid", "title", "source_cell", "target_cell",
-    "factors", "factor_type", "confidence", "source", "single_tf_flag",
-    "is_duplicate", "pubmed_url", "evidence_sentence", "abstract",
+    "factors", "factor_type", "confidence", "source", "conversion_scope",
+    "single_tf_flag", "is_duplicate", "duplicate_reason", "preferred_pmid",
+    "pubmed_url", "evidence_sentence", "abstract",
 ]]
 
 guide = pd.DataFrame([

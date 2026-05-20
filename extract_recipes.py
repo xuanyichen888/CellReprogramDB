@@ -162,9 +162,9 @@ def call_api(client, pmid, title, abstract):
             {"role": "user",   "content": user_msg},
         ],
         temperature=0.0,
-        max_tokens=2048,
+        max_tokens=8192,
     )
-    return resp.choices[0].message.content.strip()
+    return (resp.choices[0].message.content or "").strip()
 
 def parse_response(raw):
     text = raw
