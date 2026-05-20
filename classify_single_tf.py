@@ -17,6 +17,8 @@ FILE = "recipes_master_v2.csv"
 # ── Known standalone valid single-TF reprogramming factors ──────────────────
 # These are well-established in the literature as sufficient on their own
 # (or with small molecules that are already in the factors field) for conversion.
+# Context-INDEPENDENT standalone valid: these factors are universally associated
+# with a single well-defined reprogramming outcome; no target_cell check needed.
 STANDALONE_VALID = {
     # Neuronal reprogramming
     "NGN2", "NEUROG2", "NEUROGENIN2", "NEUROGENIN-2",
@@ -28,22 +30,17 @@ STANDALONE_VALID = {
     "MYOD", "MYOD1",
     # Endothelial
     "ETV2", "ER71",
-    # Hepatic
-    "HNF4A", "HNF4ALPHA", "HNF4α",
-    # Pancreatic
-    "PAX4",
     # Hematopoietic/myeloid
     "GATA1",
     "PU.1", "SPI1",
     "C/EBPA", "CEBPA",
     "C/EBPα",
-    # Cardiac
-    "GATA4",   # can drive cardiac fate alone in specific contexts
-    # Chondrocyte / cartilage
-    "SOX9",    # master regulator of chondrogenesis
-    # Hair cell
-    # (ATOH1 already above)
+    # Pancreatic beta-cell (Pax4 → beta cell is well established)
+    "PAX4",
 }
+# Context-DEPENDENT: GATA4, HNF4A, SOX9, PTF1A are valid standalone factors
+# ONLY for specific target cell types. They are NOT in STANDALONE_VALID;
+# the classify() function handles them via target_cell pattern matching.
 
 # ── Known cocktail members — single entry without other cocktail partners ────
 # These are core iPSC/pluripotency or well-known multi-factor cocktail members;
@@ -90,8 +87,7 @@ def classify(factors_str: str, target_cell: str = "", source_cell: str = "") -> 
         return "standalone_valid"
     if re.search(r"\bETV2\b|\bER71\b", f):
         return "standalone_valid"
-    if re.search(r"\bHNF4A\b|\bHNF4ALPHA\b|\bHNF4", f):
-        return "standalone_valid"
+    # HNF4A is context-dependent — handled below
     if re.search(r"\bGATA1\b", f):
         return "standalone_valid"
     if re.search(r"\bPU\.?1\b|\bSPI1\b", f):

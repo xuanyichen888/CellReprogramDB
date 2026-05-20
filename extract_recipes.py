@@ -29,8 +29,11 @@ OUTPUT_FIELDS = [
     "recipe_status", "notes",
 ]
 
-# recipe_status values that should NOT be written to the database
-SKIP_RECIPE_STATUS = {"failed", "prior_work", "method_only"}
+# recipe_status values that should NOT be written to the database at all
+SKIP_RECIPE_STATUS = {"failed", "prior_work", "method_only", "enhancer_only"}
+
+# recipe_status values that are written but flagged low-confidence + needs_review
+UNCERTAIN_RECIPE_STATUS = {"unclear"}
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """\
@@ -173,6 +176,15 @@ def parse_response(raw):
 
 def append_rows(rows):
     file_exists = os.path.exists(OUTPUT_CSV)
+    if file_exists:
+        with open(OUTPUT_CSV, newline="", encoding="utf-8") as fh:
+            existing_fields = csv.DictReader(fh).fieldnames or []
+        missing = [f for f in OUTPUT_FIELDS if f not in existing_fields]
+        if missing:
+            raise SystemExit(
+                f"ERROR: {OUTPUT_CSV} is missing fields {missing}.\n"
+                "Delete the output file and checkpoint to start fresh."
+            )
     with open(OUTPUT_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=OUTPUT_FIELDS)
         if not file_exists:
@@ -246,6 +258,11 @@ def main():
                     skipped_status += 1
                     print(f"  ↳ skipped [{recipe_status}]: {entry.get('source_cell','')} → {entry.get('target_cell','')}")
                     continue
+                # 'unclear' entries: downgrade confidence and flag for review
+                conf = entry.get("confidence", "")
+                if recipe_status in UNCERTAIN_RECIPE_STATUS:
+                    conf = "low"   # hidden by default; QA can promote if valid
+
                 rows.append({
                     "pmid":              pmid,
                     "source_cell":       entry.get("source_cell", ""),
@@ -254,7 +271,7 @@ def main():
                     "factor_type":       entry.get("factor_type", ""),
                     "species":           entry.get("species", ""),
                     "culture_condition": entry.get("culture_condition", ""),
-                    "confidence":        entry.get("confidence", ""),
+                    "confidence":        conf,
                     "paper_type":        paper_type,
                     "recipe_status":     recipe_status,
                     "notes":             entry.get("notes", ""),

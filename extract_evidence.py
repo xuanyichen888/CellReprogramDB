@@ -22,6 +22,7 @@ OUTPUT_FIELDS = [
     "species", "culture_condition",
     "confidence", "paper_type", "notes",
     "source", "evidence_sentence", "evidence_quality",
+    "validation_needs_review", "validation_resolution",
 ]
 
 SYSTEM_PROMPT = """\
@@ -93,8 +94,22 @@ def main():
 
     done = load_checkpoint()  # {index_str: evidence_sentence}
 
-    # 已处理的直接写入，未处理的调API
+    # Guard: if output already exists but has a different header (e.g. old schema without
+    # evidence_quality / validation columns), abort rather than silently corrupt the file.
     file_exists = os.path.exists(OUTPUT)
+    if file_exists:
+        with open(OUTPUT, newline="", encoding="utf-8") as fh:
+            existing_fields = csv.DictReader(fh).fieldnames or []
+        missing = [f for f in OUTPUT_FIELDS if f not in existing_fields]
+        extra   = [f for f in existing_fields if f not in OUTPUT_FIELDS]
+        if missing or extra:
+            raise SystemExit(
+                f"ERROR: {OUTPUT} has incompatible header.\n"
+                f"  Missing fields: {missing}\n"
+                f"  Unexpected fields: {extra}\n"
+                "Delete or rename the existing output file, clear the checkpoint, and re-run."
+            )
+
     out_f  = open(OUTPUT, "a", newline="", encoding="utf-8")
     writer = csv.DictWriter(out_f, fieldnames=OUTPUT_FIELDS)
     if not file_exists:
@@ -166,16 +181,19 @@ def main():
             quality  = "none"
 
         # Auto-flag weak or missing evidence so downstream QA can review
-        needs_review = "True" if quality in ("weak", "none") else "False"
+        # FIX: do NOT use `or` on string "False" — Python treats any non-empty string as truthy
+        needs_review = quality in ("weak", "none")
 
         done[idx] = evidence
         row = dict(recipe)
-        row["evidence_sentence"] = evidence
-        row["evidence_quality"]  = quality
-        row["validation_needs_review"] = row.get("validation_needs_review", "False") or needs_review
-        if quality in ("weak", "none"):
-            row["validation_resolution"] = "evidence_quality_" + quality
-        writer.writerow(row)
+        row["evidence_sentence"]      = evidence
+        row["evidence_quality"]       = quality
+        row["validation_needs_review"] = "True" if needs_review else ""
+        row["validation_resolution"]  = ("evidence_quality_" + quality) if needs_review else ""
+        # Ensure all OUTPUT_FIELDS have a value (avoid DictWriter 'extra fields' error)
+        for field in OUTPUT_FIELDS:
+            row.setdefault(field, "")
+        writer.writerow({k: row[k] for k in OUTPUT_FIELDS})  # only write declared fields
         save_checkpoint(done)
         processed += 1
 
