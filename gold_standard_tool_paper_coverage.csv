@@ -1,0 +1,23 @@
+benchmark_source,benchmark_pmid,benchmark_recipe_id,expected_source_cell,expected_target_cell,expected_factors,status,current_db_pmids,notes
+Taiji-reprogram,34761218,tool_paper,NA,NA,NA,tool_paper_excluded,,Prediction/tool paper itself should not be imported as an experimental recipe.
+Taiji-reprogram,34761218,liver_1,fibroblast,hepatocyte,"FOXA2, HNF4A, CEBPB",missing_exact_recipe,,No exact factor-set match in current visible research rows.
+Taiji-reprogram,34761218,liver_2,fibroblast,hepatocyte,"HNF1A, HNF4A, HNF6, ATF5, PROX1, CEBPA",missing_exact_recipe,,"Related liver rows exist but lack the exact HNF6/CEBPA-containing cocktail."
+Taiji-reprogram,34761218,liver_3,fibroblast,hepatocyte,"HNF1A, HNF4A, GATA4, FOXA3",covered_factor_match_source_related,26923201,Exact factor match; current source is hepatic myofibroblast rather than generic fibroblast.
+Taiji-reprogram,34761218,liver_4,fibroblast,hepatocyte,"HNF1A, FOXA1, FOXA2, FOXA3",partial_factor_match,29606616,Only a superset/related match found; keep as partial until original PMID is verified.
+Taiji-reprogram,34761218,stem_1,fibroblast,induced pluripotent stem cell,"SOX2, POU5F1, KLF4, CMYC",covered,16904174,Canonical OSKM/Yamanaka recipe is present.
+Taiji-reprogram,34761218,stem_2,fibroblast,induced pluripotent stem cell,"SOX2, POU5F1",covered_exact_factor_needs_original_pmid,"36507552;27697633;20621050",Exact factor matches exist; original benchmark PMID/source should still be verified.
+Taiji-reprogram,34761218,stem_3,fibroblast,induced pluripotent stem cell,"SOX2, POU5F1, NANOG",covered_exact_factor_needs_original_pmid,"29286621;20510497",Exact factor matches exist; original benchmark PMID/source should still be verified.
+Taiji-reprogram,34761218,myoblast_1,fibroblast,skeletal muscle/myoblast,MYOD1,covered,28101909,Human fibroblast to skeletal myotubes MYOD1 row is present.
+Taiji-reprogram,34761218,monocyte_1,B cell,macrophage,CEBPA,covered,37516962,B-cell to macrophage CEBPA row is present.
+Taiji-reprogram,34761218,monocyte_2,B cell,macrophage,"CEBPA, SPI1",missing_source_exact,37810997,"Exact CEBPA/SPI1 factor match exists but source is endothelial cell, not B cell."
+Taiji-reprogram,34761218,heart_1,fibroblast,cardiomyocyte,"GATA4, TBX5, MEF2C, ESRRG, MESP1",covered,24319660,Human fibroblast to cardiomyocyte exact row is present.
+Taiji-reprogram,34761218,heart_2,fibroblast,cardiomyocyte,"HAND2, NKX2.5, MEF2C, GATA4, TBX5",covered,23591016,Mouse fibroblast to cardiomyocyte exact row is present.
+Taiji-reprogram,34761218,bcell_1,fibroblast,dendritic/B-cell label needs check,"SPI1, IRF8, BATF3",covered_factor_target_label_needs_check,"30530727;33659292",Exact factor matches are fibroblast to cDC1/dendritic cell; benchmark label should be manually checked against Taiji supplement.
+TFcomb,40210438,tool_paper,NA,NA,NA,tool_paper_excluded,,Prediction/tool paper itself should not be imported as an experimental recipe.
+TFcomb,40210438,s1,mouse wound-resident mesenchymal cell,keratinocyte,"DNp63a, GRHL2, TFAP2A, c-Myc",covered_manual_needs_fulltext_evidence,30185909,Manual row present and source corrected; evidence_sentence intentionally blank until full text quote is available.
+TFcomb,40210438,s2,mouse fibroblast,macrophage,"PU.1, CEBPalpha, CEBPbeta",covered,18424555,TFcomb benchmark reference Feng 2008 is present.
+TFcomb,40210438,s3,mouse fibroblast,cardiomyocyte,"HAND2, NKX2.5, GATA4, MEF2C, TBX5",covered,23591016,TFcomb benchmark reference Addis 2013 is present.
+TFcomb,40210438,s4,B cell,macrophage,"CEBPalpha, CEBPbeta",covered,15163413,TFcomb benchmark reference Xie 2004 is present.
+TFcomb,40210438,s5a,mouse fibroblast,induced pluripotent stem cell,"OCT4, SOX2, KLF4, c-MYC",covered,16904174,TFcomb benchmark reference Takahashi/Yamanaka 2006 is present.
+TFcomb,40210438,s5b,human somatic cell,induced pluripotent stem cell,"OCT4, SOX2, NANOG, LIN28",covered_added,18029452,Added missing Yu 2007 abstract-supported recipe to recipes_master_v2.csv.
+TFcomb,40210438,s5c,somatic cell,induced pluripotent stem cell,"OCT4, SOX2, KLF4, c-MYC, VPA",covered,18568017,TFcomb benchmark reference Huangfu 2008 is present.
