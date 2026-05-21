@@ -68,7 +68,9 @@ def is_true(value: str) -> bool:
 st.title("🧬 CellReprogramDB")
 st.markdown(
     "A curated database of cell reprogramming recipes extracted from PubMed literature.  \n"
-    f"**{len(df)} recipes** · **{df['pmid'].nunique()} papers** · **1996–2026**"
+    f"**{len(df)} recipes** · **{df['pmid'].nunique()} papers** · **1996–2026** "
+    "<span style='font-size:0.82em;color:#888;'>(database total)</span>",
+    unsafe_allow_html=True,
 )
 st.divider()
 
@@ -77,7 +79,29 @@ with st.sidebar:
     st.header("🔍 Filter")
 
     # Clear all button
-    if st.button("✖ Clear all filters", use_container_width=True):
+    col_clr, col_rst = st.columns(2)
+    if col_clr.button("✖ Clear all", use_container_width=True,
+                      help="Remove all filters — show the full database"):
+        st.session_state["search"]         = ""
+        st.session_state["target"]         = []
+        st.session_state["source"]         = []
+        st.session_state["ft"]             = []
+        st.session_state["sp"]             = []
+        st.session_state["conf"]           = []
+        st.session_state["pt"]             = []
+        st.session_state["scope"]          = []
+        st.session_state["journal_search"] = ""
+        st.session_state["hide_dupes"]       = False
+        st.session_state["hide_no_factors"]  = False
+        st.session_state["hide_cocktail_tf"] = False
+        st.session_state["hide_validation_rejected"] = False
+        st.session_state["hide_needs_review"]        = False
+        st.session_state["show_validation_review"]   = False
+        st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
+                                              int(df["year"].max()))
+        st.rerun()
+    if col_rst.button("↺ Defaults", use_container_width=True,
+                      help="Reset to recommended default filters"):
         st.session_state["search"]         = ""
         st.session_state["target"]         = []
         st.session_state["source"]         = []
@@ -270,6 +294,21 @@ c2.metric("Papers",            filtered["pmid"].nunique())
 c3.metric("Target cell types", filtered["target_cell"].nunique())
 c4.metric("Source cell types", filtered["source_cell"].nunique())
 
+# Show a note when default filters are active and not all entries are displayed
+_defaults_active = (
+    st.session_state.get("conf", ["high","medium"]) == ["high","medium"] and
+    st.session_state.get("pt",  ["research"])       == ["research"]      and
+    st.session_state.get("hide_dupes",       True) and
+    st.session_state.get("hide_no_factors",  True) and
+    st.session_state.get("hide_cocktail_tf", True)
+)
+if _defaults_active and len(filtered) < len(df):
+    st.caption(
+        f"Showing {len(filtered):,} of {len(df):,} total recipes. "
+        "Default filters are active (high/medium confidence · research papers · duplicates hidden). "
+        "Click **✖ Clear all** in the sidebar to see all entries."
+    )
+
 st.divider()
 
 # ── Main table ────────────────────────────────────────────────────────────────
@@ -367,10 +406,15 @@ with chart_col2:
 # Year trend
 if "year" in filtered.columns:
     st.markdown("**Recipes by year**")
-    year_counts = (
-        filtered[filtered["year"] > 0]["year"]
-        .value_counts().sort_index()
-        .reset_index()
-    )
-    year_counts.columns = ["Year", "Recipes"]
+    year_data = filtered[filtered["year"] > 0]["year"].value_counts().sort_index()
+    if not year_data.empty:
+        # Fill gaps so the x-axis is evenly spaced
+        full_idx   = range(int(year_data.index.min()), int(year_data.index.max()) + 1)
+        year_counts = (
+            year_data.reindex(full_idx, fill_value=0)
+            .reset_index()
+        )
+        year_counts.columns = ["Year", "Recipes"]
+    else:
+        year_counts = pd.DataFrame(columns=["Year", "Recipes"])
     st.bar_chart(year_counts.set_index("Year"), height=220)
