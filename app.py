@@ -221,7 +221,7 @@ with st.sidebar:
                             value=default_yr, key="year_range")
 
     st.divider()
-    st.markdown("**Wang Lab · UCSD**  \nPre-release v0.9")
+    st.markdown("Pre-release v0.9")
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
 filtered = df.copy()

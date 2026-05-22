@@ -156,4 +156,4 @@ If you use CellReprogramDB in your research, please cite:
 
 ---
 
-*Developed in the Wang Lab, UCSD. Pre-release v0.9.*
+*Pre-release v0.9.*
