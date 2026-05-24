@@ -269,7 +269,7 @@ elif "hide_single_tf" in st.session_state:
     # Legacy fallback for old session state key
     pass
 
-if hide_needs_review and not show_validation_review:
+if hide_needs_review and not show_validation_review and "validation_needs_review" in filtered.columns:
     filtered = filtered[filtered["validation_needs_review"].apply(is_true).eq(False)]
 
 if hide_validation_rejected and not show_validation_review:
@@ -279,7 +279,7 @@ if hide_validation_rejected and not show_validation_review:
     )
     filtered = filtered[~rejected]
 
-if show_validation_review:
+if show_validation_review and "validation_needs_review" in filtered.columns:
     filtered = filtered[filtered["validation_needs_review"].apply(is_true)]
 
 filtered = filtered[
