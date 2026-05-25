@@ -179,11 +179,12 @@ with st.sidebar:
                                    key="hide_no_factors",
                                    help="Exclude recipes where no specific factors were identified")
     hide_cocktail_tf = st.checkbox(
-        "Hide single-TF cocktail members",
+        "Hide unverified single-TF entries",
         value=st.session_state.get("hide_cocktail_tf", True),
         key="hide_cocktail_tf",
-        help="Hide entries where a single TF is a known member of a larger cocktail (e.g., SOX2 alone in an OSKM study). "
-             "Standalone single-TF recipes (NGN2, ASCL1, ETV2, etc.) are always shown.",
+        help="Hide single-TF entries that are either known cocktail members (e.g., SOX2 alone in an OSKM study) "
+             "or could not be verified as standalone conversions without full-text review. "
+             "Well-established standalone single-TF recipes (NGN2, ASCL1, MYOD1, ETV2, GATA1, etc.) are always shown.",
     )
 
     with st.expander("Validation QA", expanded=False):
@@ -265,11 +266,8 @@ if hide_no_factors and not show_validation_review:
     filtered = filtered[~filtered["factors"].apply(factors_are_unspecified)]
 
 if hide_cocktail_tf and not show_validation_review and "single_tf_status" in filtered.columns:
-    # Only hide entries explicitly classified as cocktail members; show standalone and unclear
-    filtered = filtered[filtered["single_tf_status"] != "cocktail_member"]
-elif "hide_single_tf" in st.session_state:
-    # Legacy fallback for old session state key
-    pass
+    # Hide cocktail members and unverified unclear entries; always show standalone_valid
+    filtered = filtered[~filtered["single_tf_status"].isin(["cocktail_member", "unclear"])]
 
 if hide_needs_review and not show_validation_review and "validation_needs_review" in filtered.columns:
     filtered = filtered[filtered["validation_needs_review"].apply(is_true).eq(False)]
