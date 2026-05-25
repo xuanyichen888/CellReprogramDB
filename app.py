@@ -29,6 +29,14 @@ def load_data():
     }.items():
         if col not in df.columns:
             df[col] = default
+    # Factor count
+    def _count_factors(s):
+        s = str(s).strip()
+        if not s or s.lower() == "not specified":
+            return 0
+        return len([f for f in re.split(r"[,;/]", s) if f.strip()])
+    df["factor_count"] = df["factors"].apply(_count_factors)
+
     # year列已预合并在CSV中
     if "year" in df.columns:
         df["year"] = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(int)
@@ -97,6 +105,7 @@ with st.sidebar:
         st.session_state["hide_validation_rejected"] = False
         st.session_state["hide_needs_review"]        = False
         st.session_state["show_validation_review"]   = False
+        st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
         st.rerun()
@@ -117,6 +126,7 @@ with st.sidebar:
         st.session_state["hide_validation_rejected"] = True
         st.session_state["hide_needs_review"]        = True
         st.session_state["show_validation_review"]   = False
+        st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
         st.rerun()
@@ -215,6 +225,16 @@ with st.sidebar:
             "**Low**: recipe is inferred or weakly supported; low-confidence entries are hidden by default."
         )
 
+    # Factor count range
+    max_fc = int(df["factor_count"].max()) if len(df) else 10
+    default_fc = st.session_state.get("factor_count_range", (1, max_fc))
+    factor_count_range = st.slider(
+        "Number of factors", 1, max_fc,
+        value=default_fc, key="factor_count_range",
+        help="Filter by how many factors are in a recipe. "
+             "Single-factor entries that are well-established (NGN2, ASCL1, etc.) are included at count=1.",
+    )
+
     # Year range
     year_vals = df["year"][df["year"] > 0]
     min_year  = int(year_vals.min()) if len(year_vals) else 2000
@@ -281,6 +301,12 @@ if hide_validation_rejected and not show_validation_review:
 
 if show_validation_review and "validation_needs_review" in filtered.columns:
     filtered = filtered[filtered["validation_needs_review"].apply(is_true)]
+
+fc_min, fc_max = factor_count_range
+if (fc_min, fc_max) != (1, int(df["factor_count"].max())):
+    filtered = filtered[
+        (filtered["factor_count"] >= fc_min) & (filtered["factor_count"] <= fc_max)
+    ]
 
 filtered = filtered[
     (filtered["year"] == 0) |
