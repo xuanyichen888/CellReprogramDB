@@ -126,12 +126,14 @@ with st.sidebar:
     search = st.text_input("Search (cell type, factor, PMID…)",
                            key="search", value=st.session_state.get("search",""))
 
-    all_targets = sorted(df["target_cell"].dropna().unique().tolist())
+    _tgt_col = "target_cell_std" if "target_cell_std" in df.columns else "target_cell"
+    _src_col = "source_cell_std" if "source_cell_std" in df.columns else "source_cell"
+    all_targets = sorted(df[_tgt_col].dropna().unique().tolist())
     target_sel  = st.multiselect("Target cell type", all_targets,
                                   key="target",
                                   default=st.session_state.get("target",[]))
 
-    all_sources = sorted(df["source_cell"].dropna().unique().tolist())
+    all_sources = sorted(df[_src_col].dropna().unique().tolist())
     source_sel  = st.multiselect("Source cell type", all_sources,
                                   key="source",
                                   default=st.session_state.get("source",[]))
@@ -231,10 +233,10 @@ if search:
     filtered = filtered[mask]
 
 if target_sel:
-    filtered = filtered[filtered["target_cell"].isin(target_sel)]
+    filtered = filtered[filtered[_tgt_col].isin(target_sel)]
 
 if source_sel:
-    filtered = filtered[filtered["source_cell"].isin(source_sel)]
+    filtered = filtered[filtered[_src_col].isin(source_sel)]
 
 if ft_sel:
     def has_ft(s):
