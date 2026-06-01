@@ -34,8 +34,9 @@ PubMed E-utilities
  extract_evidence.py      — Extract verbatim evidence sentences
       │
       ▼
- QA / curation pipeline
+QA / curation pipeline
   ├─ mark_duplicates.py         — Deduplicate across abstract & fulltext sources
+  ├─ mark_broad_duplicates.py   — Optional broad cell-type merge annotations
   ├─ flag_single_tf.py          — Detect single-TF entries
   ├─ classify_single_tf.py      — standalone_valid vs cocktail_member vs unclear
   ├─ normalize_cell_synonyms.py — Standardize cell type names
@@ -65,7 +66,7 @@ PubMed E-utilities
 
 **Single-TF classification**
 - Distinguishes standalone valid single-factor conversions (NGN2, ASCL1, MYOD1, ETV2 …) from cocktail-member studies (OCT4, SOX2, KLF4 alone in an OSKM context)
-- Cocktail members hidden by default; standalone entries shown
+- Cocktail members and unclear single-TF entries are hidden by default; standalone entries remain visible
 
 **Benchmark validation**
 - Coverage verified against Taiji-reprogram and TFcomb validated recipe sets
@@ -73,6 +74,7 @@ PubMed E-utilities
 
 **Interactive Streamlit app**
 - Filter by target/source cell type, factors, species, confidence, paper type, journal, year range
+- Switch between exact recipe deduplication and broad cell-type merge mode
 - Dynamic charts: recipes by year, top target cell types, factor type distribution
 - Downloadable filtered CSV
 
@@ -88,6 +90,7 @@ fetch_fulltext.py          PMC full-text retrieval
 extract_evidence.py        Evidence sentence extraction
 reextract_evidence_flagged.py  Re-extraction for weak/missing evidence
 mark_duplicates.py         Duplicate detection
+mark_broad_duplicates.py   Broad cell-type duplicate detection
 classify_single_tf.py      Single-TF classification
 normalize_cell_synonyms.py Cell type name standardization
 recipes_master_v2.csv      Final curated database

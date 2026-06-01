@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
+from pathlib import Path
 
 st.set_page_config(
     page_title="CellReprogramDB",
@@ -9,9 +10,17 @@ st.set_page_config(
 )
 
 # ── Load data ─────────────────────────────────────────────────────────────────
+DATA_PATH = Path("recipes_master_v2.csv")
+JOURNALS_PATH = Path("journals.csv")
+
+
+def _file_mtime(path: Path) -> float:
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
 @st.cache_data
-def load_data():
-    df = pd.read_csv("recipes_master_v2.csv", dtype=str).fillna("")
+def load_data(data_mtime: float, journals_mtime: float):
+    df = pd.read_csv(DATA_PATH, dtype=str).fillna("")
     for col, default in {
         "single_tf_flag": "False",
         "single_tf_status": "",
@@ -19,6 +28,12 @@ def load_data():
         "duplicate_reason": "",
         "preferred_pmid": "",
         "duplicate_group_id": "",
+        "source_cell_broad": "",
+        "target_cell_broad": "",
+        "is_broad_duplicate": "False",
+        "broad_duplicate_reason": "",
+        "broad_preferred_pmid": "",
+        "broad_duplicate_group_id": "",
         "validation_action": "",
         "validation_recipe_valid": "",
         "validation_error_category": "",
@@ -37,6 +52,27 @@ def load_data():
         return len([f for f in re.split(r"[,;/]", s) if f.strip()])
     df["factor_count"] = df["factors"].apply(_count_factors)
 
+    # Search helper: make punctuation/case variants searchable as one concept.
+    # Examples: "T-cell", "T cell", and "Tcell"; "β-cell" and "beta cell".
+    def _normalize_search_text(value):
+        text = str(value).lower()
+        text = (
+            text.replace("β", "beta")
+                .replace("α", "alpha")
+                .replace("γ", "gamma")
+                .replace("δ", "delta")
+        )
+        text = re.sub(r"[-_/]+", " ", text)
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _make_search_blob(row):
+        normalized = " ".join(_normalize_search_text(v) for v in row.values)
+        compact = re.sub(r"[^a-z0-9]+", "", normalized)
+        return f"{normalized} {compact}"
+
+    df["_search_blob"] = df.apply(_make_search_blob, axis=1)
+
     # year列已预合并在CSV中
     if "year" in df.columns:
         df["year"] = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(int)
@@ -44,14 +80,14 @@ def load_data():
         df["year"] = 0
     # Merge journal names
     try:
-        journals = pd.read_csv("journals.csv", dtype=str).fillna("")
+        journals = pd.read_csv(JOURNALS_PATH, dtype=str).fillna("")
         df = df.merge(journals, on="pmid", how="left")
         df["journal"] = df["journal"].fillna("")
     except FileNotFoundError:
         df["journal"] = ""
     return df
 
-df = load_data()
+df = load_data(_file_mtime(DATA_PATH), _file_mtime(JOURNALS_PATH))
 
 SCOPE_LABELS = {
     "classical_reprogramming": "Classical reprogramming",
@@ -63,6 +99,11 @@ SCOPE_LABELS = {
 
 HIDDEN_VALIDATION_ACTIONS = {"remove", "hide_incomplete_recipe", "hide_single_tf"}
 
+DEDUP_MODE_LABELS = {
+    "broad": "Broad cell-type merge",
+    "exact": "Exact recipe match",
+}
+
 
 def factors_are_unspecified(value: str) -> bool:
     text = str(value).strip().lower()
@@ -72,12 +113,18 @@ def factors_are_unspecified(value: str) -> bool:
 def is_true(value: str) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes"}
 
+
+exact_dedup_df = df[df["is_duplicate"].astype(str).str.lower() != "true"]
+broad_dedup_df = df[df["is_broad_duplicate"].astype(str).str.lower() != "true"]
+
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🧬 CellReprogramDB")
 st.markdown(
     "A curated database of cell reprogramming recipes extracted from PubMed literature.  \n"
-    f"**{len(df)} recipes** · **{df['pmid'].nunique()} papers** · **1996–2026** "
-    "<span style='font-size:0.82em;color:#888;'>(database total)</span>",
+    f"**{len(broad_dedup_df):,} broad-merged recipes** · "
+    f"**{len(exact_dedup_df):,} exact recipes** · "
+    f"**{len(df):,} raw records** · **1996–2026** "
+    "<span style='font-size:0.82em;color:#888;'>(duplicates are flagged, not deleted)</span>",
     unsafe_allow_html=True,
 )
 st.divider()
@@ -100,11 +147,13 @@ with st.sidebar:
         st.session_state["scope"]          = []
         st.session_state["journal_search"] = ""
         st.session_state["hide_dupes"]       = False
+        st.session_state["dedup_mode"]       = "exact"
         st.session_state["hide_no_factors"]  = False
         st.session_state["hide_cocktail_tf"] = False
         st.session_state["hide_validation_rejected"] = False
         st.session_state["hide_needs_review"]        = False
         st.session_state["show_validation_review"]   = False
+        st.session_state["single_tf_status_filter"]  = []
         st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
@@ -121,11 +170,13 @@ with st.sidebar:
         st.session_state["scope"]          = []
         st.session_state["journal_search"] = ""
         st.session_state["hide_dupes"]       = True
+        st.session_state["dedup_mode"]       = "broad"
         st.session_state["hide_no_factors"]  = True
         st.session_state["hide_cocktail_tf"] = True
         st.session_state["hide_validation_rejected"] = True
         st.session_state["hide_needs_review"]        = True
         st.session_state["show_validation_review"]   = False
+        st.session_state["single_tf_status_filter"]  = []
         st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
@@ -184,6 +235,17 @@ with st.sidebar:
                                    value=st.session_state.get("hide_dupes", True),
                                    key="hide_dupes",
                                    help="Keep only the earliest research paper per unique recipe")
+    dedup_mode = st.selectbox(
+        "Deduplication mode",
+        ["broad", "exact"],
+        format_func=lambda mode: DEDUP_MODE_LABELS.get(mode, mode),
+        key="dedup_mode",
+        index=["broad", "exact"].index(st.session_state.get("dedup_mode", "broad")),
+        help="Broad mode merges high-frequency cell-type variants such as fibroblast subtypes, iPSC variants, "
+             "and generic neuron-like targets. Exact mode only merges rows with the same standardized source, "
+             "target, and factor set.",
+        disabled=not hide_dupes,
+    )
     hide_no_factors = st.checkbox("Hide 'factors not specified'",
                                    value=st.session_state.get("hide_no_factors", True),
                                    key="hide_no_factors",
@@ -216,6 +278,13 @@ with st.sidebar:
             value=st.session_state.get("show_validation_review", False),
             key="show_validation_review",
             help="Show all rows flagged for follow-up, including remove/no rows",
+        )
+        single_tf_status_filter = st.multiselect(
+            "Single-TF status",
+            ["standalone_valid", "unclear", "cocktail_member"],
+            key="single_tf_status_filter",
+            default=st.session_state.get("single_tf_status_filter", []),
+            help="Inspect single-transcription-factor entries by curation status",
         )
 
     with st.expander("Confidence criteria", expanded=False):
@@ -250,7 +319,23 @@ with st.sidebar:
 filtered = df.copy()
 
 if search:
-    mask = filtered.apply(lambda row: search.lower() in row.to_string().lower(), axis=1)
+    def _normalize_query(value):
+        text = str(value).lower()
+        text = (
+            text.replace("β", "beta")
+                .replace("α", "alpha")
+                .replace("γ", "gamma")
+                .replace("δ", "delta")
+        )
+        text = re.sub(r"[-_/]+", " ", text)
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    query = _normalize_query(search)
+    compact_query = re.sub(r"[^a-z0-9]+", "", query)
+    mask = filtered["_search_blob"].str.contains(re.escape(query), na=False)
+    if compact_query and compact_query != query:
+        mask = mask | filtered["_search_blob"].str.contains(re.escape(compact_query), na=False)
     filtered = filtered[mask]
 
 if target_sel:
@@ -279,13 +364,17 @@ if scope_sel:
 if journal_search:
     filtered = filtered[filtered["journal"].str.contains(journal_search, case=False, na=False)]
 
-if hide_dupes and not show_validation_review and "is_duplicate" in filtered.columns:
-    filtered = filtered[filtered["is_duplicate"].astype(str).str.lower() != "true"]
+if hide_dupes and not show_validation_review:
+    duplicate_col = "is_broad_duplicate" if dedup_mode == "broad" else "is_duplicate"
+    if duplicate_col in filtered.columns:
+        filtered = filtered[filtered[duplicate_col].astype(str).str.lower() != "true"]
 
 if hide_no_factors and not show_validation_review:
     filtered = filtered[~filtered["factors"].apply(factors_are_unspecified)]
 
-if hide_cocktail_tf and not show_validation_review and "single_tf_status" in filtered.columns:
+if single_tf_status_filter and "single_tf_status" in filtered.columns:
+    filtered = filtered[filtered["single_tf_status"].isin(single_tf_status_filter)]
+elif hide_cocktail_tf and not show_validation_review and "single_tf_status" in filtered.columns:
     # Hide cocktail members and unverified unclear entries; always show standalone_valid
     filtered = filtered[~filtered["single_tf_status"].isin(["cocktail_member", "unclear"])]
 
@@ -315,23 +404,27 @@ filtered = filtered[
 
 # ── Stats row ─────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
+_metric_tgt_col = "target_cell_broad" if hide_dupes and dedup_mode == "broad" and "target_cell_broad" in filtered.columns else _tgt_col
+_metric_src_col = "source_cell_broad" if hide_dupes and dedup_mode == "broad" and "source_cell_broad" in filtered.columns else _src_col
 c1.metric("Recipes shown",     len(filtered))
 c2.metric("Papers",            filtered["pmid"].nunique())
-c3.metric("Target cell types", filtered["target_cell"].nunique())
-c4.metric("Source cell types", filtered["source_cell"].nunique())
+c3.metric("Target cell types", filtered[_metric_tgt_col].nunique())
+c4.metric("Source cell types", filtered[_metric_src_col].nunique())
 
 # Show a note when default filters are active and not all entries are displayed
 _defaults_active = (
     st.session_state.get("conf", ["high","medium"]) == ["high","medium"] and
     st.session_state.get("pt",  ["research"])       == ["research"]      and
     st.session_state.get("hide_dupes",       True) and
+    st.session_state.get("dedup_mode", "broad") == "broad" and
     st.session_state.get("hide_no_factors",  True) and
-    st.session_state.get("hide_cocktail_tf", True)
+    st.session_state.get("hide_cocktail_tf", True) and
+    not st.session_state.get("single_tf_status_filter", [])
 )
 if _defaults_active and len(filtered) < len(df):
     st.caption(
         f"Showing {len(filtered):,} of {len(df):,} total recipes. "
-        "Default filters are active (high/medium confidence · research papers · duplicates hidden). "
+        "Default filters are active (high/medium confidence · research papers · broad duplicates hidden). "
         "Click **✖ Clear all** in the sidebar to see all entries."
     )
 
@@ -407,8 +500,9 @@ chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
     st.markdown("**Top 15 target cell types**")
+    _chart_tgt_col = "target_cell_std" if "target_cell_std" in filtered.columns else "target_cell"
     target_counts = (
-        filtered["target_cell"].value_counts().head(15)
+        filtered[_chart_tgt_col].value_counts().head(15)
         .reset_index()
     )
     target_counts.columns = ["Target cell type", "Count"]

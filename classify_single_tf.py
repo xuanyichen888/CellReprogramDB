@@ -5,7 +5,7 @@ Classify single-TF entries into:
   unclear           — cannot determine without reading the full paper
 
 Adds column: single_tf_status
-App logic change: only hide 'cocktail_member' by default; show 'standalone_valid' and 'unclear'
+App logic: hide 'cocktail_member' and 'unclear' by default; show 'standalone_valid'
 """
 
 import re
@@ -190,7 +190,7 @@ def main():
         (df["paper_type"] == "research") &
         (~df["validation_action"].isin(["remove","hide_incomplete_recipe","hide_single_tf"]))
     ]
-    print(f"unclear (will show in default view — may be checked later): {len(unc)}")
+    print(f"unclear (hidden by default — should be checked later): {len(unc)}")
     print(unc["factors"].value_counts().head(20).to_string())
 
     shutil.copy(FILE, FILE + ".bak")

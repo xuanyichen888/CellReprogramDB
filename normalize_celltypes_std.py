@@ -19,28 +19,17 @@ FILE = "recipes_master_v2.csv"
 # ── Layer 2: abbreviation expansion ──────────────────────────────────────────
 # Matched as whole-word, case-insensitive; applied before synonym merging.
 ABBREV = {
-    r"\bPBMC\b":   "peripheral blood mononuclear cell",
-    r"\bPBMCs\b":  "peripheral blood mononuclear cell",
-    r"\bMEF\b":    "mouse embryonic fibroblast",
-    r"\bMEFs\b":   "mouse embryonic fibroblast",
-    r"\bMSC\b":    "mesenchymal stem cell",
-    r"\bMSCs\b":   "mesenchymal stem cell",
-    r"\bHUVEC\b":  "human umbilical vein endothelial cell",
-    r"\bHUVECs\b": "human umbilical vein endothelial cell",
-    r"\bHSC\b":    "hematopoietic stem cell",
-    r"\bHSCs\b":   "hematopoietic stem cell",
-    r"\bNSC\b":    "neural stem cell",
-    r"\bNSCs\b":   "neural stem cell",
-    r"\biPSC\b":   "induced pluripotent stem cell",
-    r"\biPSCs\b":  "induced pluripotent stem cell",
-    r"\bESC\b":    "embryonic stem cell",
-    r"\bESCs\b":   "embryonic stem cell",
-    r"\bhESC\b":   "human embryonic stem cell",
-    r"\bhESCs\b":  "human embryonic stem cell",
-    r"\bmESC\b":   "mouse embryonic stem cell",
-    r"\bmESCs\b":  "mouse embryonic stem cell",
-    r"\bNPC\b":    "neural progenitor cell",
-    r"\bNPCs\b":   "neural progenitor cell",
+    r"(?<![-A-Za-z0-9])PBMCs?\b":  "peripheral blood mononuclear cell",
+    r"(?<![-A-Za-z0-9])MEFs?\b":   "mouse embryonic fibroblast",
+    r"(?<![-A-Za-z0-9])MSCs?\b":   "mesenchymal stem cell",
+    r"(?<![-A-Za-z0-9])HUVECs?\b": "human umbilical vein endothelial cell",
+    r"(?<![-A-Za-z0-9])HSCs?\b":   "hematopoietic stem cell",
+    r"(?<![-A-Za-z0-9])NSCs?\b":   "neural stem cell",
+    r"(?<![-A-Za-z0-9])iPSCs?\b":  "induced pluripotent stem cell",
+    r"(?<![-A-Za-z0-9])ESCs?\b":   "embryonic stem cell",
+    r"(?<![-A-Za-z0-9])hESCs?\b":  "human embryonic stem cell",
+    r"(?<![-A-Za-z0-9])mESCs?\b":  "mouse embryonic stem cell",
+    r"(?<![-A-Za-z0-9])NPCs?\b":   "neural progenitor cell",
 }
 
 # ── Layer 3: synonym → canonical form ────────────────────────────────────────
@@ -50,9 +39,17 @@ SYNONYMS = {
     # ── T cell punctuation ────────────────────────────────────────────────────
     "T-cell":                        "T cell",
     "T-Cell":                        "T cell",
+    "T-cells":                       "T cell",
+    "T cells":                       "T cell",
     "T lymphocyte":                  "T cell",
+    "T lymphocytes":                 "T cell",
 
     # ── Regulatory T cell variants ────────────────────────────────────────────
+    "CD4+ Treg":                     "regulatory T cell",
+    "Treg":                          "regulatory T cell",
+    "Tregs":                         "regulatory T cell",
+    "Treg cell":                     "regulatory T cell",
+    "Treg cells":                    "regulatory T cell",
     "regulatory T cell (Treg)":      "regulatory T cell",
     "regulatory T cell (Foxp3+)":    "regulatory T cell",
     "regulatory T cell (Foxp3+ Treg)": "regulatory T cell",
@@ -60,11 +57,17 @@ SYNONYMS = {
     "regulatory T cells (Tregs)":    "regulatory T cell",
     "Foxp3+ regulatory T cell (Treg)": "regulatory T cell",
     "FOXP3 lineage regulatory T cell (Treg)": "regulatory T cell",
+    "alloantigen-specific CD4+ Foxp3+ regulatory T cells (ag-Tregs)": "regulatory T cell",
+    "functional iTreg cell":         "regulatory T cell",
+    "induced regulatory T cell (Treg, FOXP3+CD25+CD4+)": "regulatory T cell",
 
     # ── B cell ────────────────────────────────────────────────────────────────
     "B-cell":                        "B cell",
     "B-Cell":                        "B cell",
+    "B-cells":                       "B cell",
+    "B cells":                       "B cell",
     "B lymphocyte":                  "B cell",
+    "B lymphocytes":                 "B cell",
     "resting B-lymphocyte":          "B cell",
 
     # ── NK cell ──────────────────────────────────────────────────────────────
@@ -85,6 +88,14 @@ SYNONYMS = {
     "cardiomyocytes":                "cardiomyocyte",
     "cardiac myocyte":               "cardiomyocyte",
 
+    # ── Pancreatic beta / insulin-producing cell punctuation ─────────────────
+    "insulin-producing cell (β cell)": "insulin-producing cell (β-cell)",
+    "insulin-producing cell (beta cell)": "insulin-producing cell (β-cell)",
+    "pancreatic β cell":             "insulin-producing cell (β-cell)",
+    "pancreatic beta cell":          "insulin-producing cell (β-cell)",
+    "islet beta cell":               "insulin-producing cell (β-cell)",
+    "islet β cell":                  "insulin-producing cell (β-cell)",
+
     # ── Hepatocyte variants (conservative — only clear equivalents) ───────────
     "hepatocyte (hepatic spheroid)": "hepatocyte",
     "mature functional hepatocyte":  "hepatocyte",
@@ -100,6 +111,11 @@ SYNONYMS = {
     # ── Endothelial ───────────────────────────────────────────────────────────
     "endothelial cells":             "endothelial cell",
     "vascular endothelial cell":     "endothelial cell",
+
+    # ── Remaining hyphen variants ─────────────────────────────────────────────
+    "GABAergic induced-neuron":                  "GABAergic induced neuron",
+    "induced-oligodendrocyte progenitor cell":   "induced oligodendrocyte progenitor cell",
+    "type-1 conventional dendritic cell":        "type 1 conventional dendritic cell",
 }
 
 
@@ -115,12 +131,41 @@ def normalize(name: str) -> str:
     s = re.sub(r'\b(\w+)-[Cc]ells?\b',
                lambda m: m.group(1) + " cell", s)
 
-    # Layer 2: abbreviation expansion
-    for pattern, replacement in ABBREV.items():
-        s = re.sub(pattern, replacement, s, flags=re.IGNORECASE)
+    # Layer 2: abbreviation expansion, but only outside parentheticals.
+    # This avoids "human embryonic stem cell (hESC)" becoming
+    # "human embryonic stem cell (human embryonic stem cell)".
+    parts = re.split(r"(\([^)]*\))", s)
+    for i, part in enumerate(parts):
+        if part.startswith("(") and part.endswith(")"):
+            continue
+        for pattern, replacement in ABBREV.items():
+            part = re.sub(pattern, replacement, part, flags=re.IGNORECASE)
+        parts[i] = part
+    s = "".join(parts)
 
     # Layer 3: exact synonym lookup (post-expansion)
     s = SYNONYMS.get(s, s)
+
+    duplicate_parentheticals = [
+        r"induced pluripotent stem cells?",
+        r"human embryonic stem cells?",
+        r"embryonic stem cells?",
+        r"mouse embryonic stem cells?",
+        r"peripheral blood mononuclear cells?",
+        r"human umbilical vein endothelial cells?",
+        r"mesenchymal stem cells?",
+        r"neural stem cells?",
+        r"neural progenitor cells?",
+        r"hematopoietic stem cells?",
+        r"mouse embryonic fibroblasts?",
+    ]
+    for pattern in duplicate_parentheticals:
+        s = re.sub(
+            rf"\b({pattern})\s*\(\s*{pattern}\s*\)",
+            lambda m: m.group(1),
+            s,
+            flags=re.IGNORECASE,
+        )
 
     return s
 
