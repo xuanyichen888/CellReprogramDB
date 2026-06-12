@@ -39,12 +39,17 @@ QA / curation pipeline
   ├─ mark_broad_duplicates.py   — Optional broad cell-type merge annotations
   ├─ flag_single_tf.py          — Detect single-TF entries
   ├─ classify_single_tf.py      — standalone_valid vs cocktail_member vs unclear
-  ├─ normalize_cell_synonyms.py — Standardize cell type names
+  ├─ normalize_celltypes_std.py — Standardize cell type names
+  ├─ fix_species.py             — Conservative rule-based species cleanup
+  ├─ fill_species_deepseek.py   — Checkpointed LLM pass for remaining species blanks
+  ├─ fill_missing_factors_deepseek.py — Checkpointed LLM pass for missing factors
+  ├─ fix_factor_types.py        — Normalize and infer factor type labels
+  ├─ fill_conversion_scope_deepseek.py — Checkpointed LLM pass for unclear conversion scope
   ├─ reextract_evidence_flagged.py — Re-extract weak/missing evidence sentences
   └─ apply_v3_curation_fixes.py — Manual QA annotation integration
       │
       ▼
- recipes_master_v2.csv    — Final database (35 columns)
+ recipes_master_v2.csv    — Final curated master table
       │
       ▼
  app.py                   — Streamlit web app
@@ -67,6 +72,18 @@ QA / curation pipeline
 **Single-TF classification**
 - Distinguishes standalone valid single-factor conversions (NGN2, ASCL1, MYOD1, ETV2 …) from cocktail-member studies (OCT4, SOX2, KLF4 alone in an OSKM context)
 - Cocktail members and unclear single-TF entries are hidden by default; standalone entries remain visible
+
+**Species cleanup**
+- Existing species labels are normalized into stable values such as `human`, `mouse`, `human, mouse`, `rat`, and `porcine`
+- Remaining blank species rows are processed by a checkpointed DeepSeek pass; low-confidence or unclear model outputs are left blank for manual review
+
+**Factor cleanup**
+- Missing factor lists are first filled from strict same-paper/source/target matches, then by a checkpointed DeepSeek pass for high/medium-confidence research rows
+- Vague outputs such as `defined factors`, `factor pairs`, or unnamed chemical cocktails remain hidden as `not specified`
+
+**Conversion scope cleanup**
+- Recipes are classified as classical reprogramming, lineage conversion, directed differentiation, cell-state modulation, or unclear
+- Remaining unclear rows are processed by a checkpointed DeepSeek pass, with low-confidence cases left as `unclear`
 
 **Benchmark validation**
 - Coverage verified against Taiji-reprogram and TFcomb validated recipe sets
@@ -92,7 +109,12 @@ reextract_evidence_flagged.py  Re-extraction for weak/missing evidence
 mark_duplicates.py         Duplicate detection
 mark_broad_duplicates.py   Broad cell-type duplicate detection
 classify_single_tf.py      Single-TF classification
-normalize_cell_synonyms.py Cell type name standardization
+normalize_celltypes_std.py Cell type name standardization
+fix_species.py             Rule-based species cleanup
+fill_species_deepseek.py   LLM-assisted species cleanup
+fill_missing_factors_deepseek.py  LLM-assisted factor cleanup
+fix_factor_types.py        Factor type normalization
+fill_conversion_scope_deepseek.py LLM-assisted conversion scope cleanup
 recipes_master_v2.csv      Final curated database
 papers.csv                 Raw PubMed abstracts
 fulltext.csv               PMC full-text excerpts
