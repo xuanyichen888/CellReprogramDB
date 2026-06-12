@@ -6,8 +6,10 @@ pmc_available.csv
 *.bak
 *.tmp
 
-# checkpoint文件
+# checkpoint文件 / 生成物状态
 checkpoint_*.json
+checkpoint.json
+*_done.json
 
 # Python
 __pycache__/
@@ -20,5 +22,9 @@ __pycache__/
 
 # 依赖与大文件/输出
 node_modules/
+node_modules
 *.zip
 *.numbers
+
+# QA 生成物（非源码，默认不交）
+qa_outputs/
