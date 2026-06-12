@@ -19,6 +19,8 @@ from pathlib import Path
 import pandas as pd
 from openai import OpenAI
 
+from mark_duplicates import split_factors
+
 FILE = Path("recipes_master_v2.csv")
 PAPERS_FILE = Path("papers.csv")
 FULLTEXT_FILE = Path("fulltext.csv")
@@ -90,7 +92,8 @@ def is_missing_factor(value: str) -> bool:
 
 
 def split_csvish(value: str) -> list[str]:
-    return [part.strip() for part in re.split(r",|;", clean(value)) if part.strip()]
+    # Paren/slash-aware: keep "Oct3/4 (Pou5f1)" and "miR (a, b)" intact.
+    return split_factors(clean(value))
 
 
 def is_specific_factors(value: str) -> bool:

@@ -1,2 +1,9 @@
+# Web app
 streamlit>=1.32.0
 pandas>=2.0.0
+
+# Curation / QA pipeline
+openai>=1.0.0          # DeepSeek API client (fill_*_deepseek.py, classify_paper_type_deepseek.py)
+requests>=2.28.0       # Europe PMC full-text fetching (fetch_fulltext*.py)
+biopython>=1.81        # PubMed access (Bio.Entrez) in fetch/enrich scripts
+openpyxl>=3.1.0        # Excel read/write for QA workbooks

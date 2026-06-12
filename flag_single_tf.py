@@ -6,11 +6,14 @@
 """
 import pandas as pd, shutil
 
+from mark_duplicates import split_factors
+
 FILE = "recipes_master_v2.csv"
 
 
 def is_single_tf(row) -> bool:
-    factors = [f.strip() for f in row["factors"].split(",")
+    # Paren/slash-aware split so "Oct3/4 (Pou5f1)" or "miR (a, b)" count as one.
+    factors = [f.strip() for f in split_factors(row["factors"])
                if f.strip() and f.strip() not in ("not specified", "")]
     ft_list = [f.strip() for f in row["factor_type"].split(",") if f.strip()]
     if len(factors) != 1:

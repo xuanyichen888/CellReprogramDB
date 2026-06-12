@@ -219,6 +219,23 @@ def main():
 
     df = df.drop(columns=["year_int", "_source_key", "_target_key", "_factor_key"])
 
+    # Manual-adjudication duplicates (mark_duplicate / superseded_by_fulltext)
+    # that fall outside any computed group still need non-empty, auditable
+    # metadata instead of blank reason/group (mirrors mark_broad_duplicates).
+    is_dup_now = df["is_duplicate"].astype(str).str.lower() == "true"
+    incomplete = is_dup_now & (
+        (df["duplicate_group_id"].astype(str).str.strip() == "")
+        | (df["preferred_pmid"].astype(str).str.strip() == "")
+        | (df["duplicate_reason"].astype(str).str.strip() == "")
+    )
+    for idx in df.index[incomplete]:
+        if not str(df.at[idx, "duplicate_reason"]).strip():
+            df.at[idx, "duplicate_reason"] = "manual_adjudication"
+        if not str(df.at[idx, "duplicate_group_id"]).strip():
+            df.at[idx, "duplicate_group_id"] = "manual"
+        if not str(df.at[idx, "preferred_pmid"]).strip():
+            df.at[idx, "preferred_pmid"] = str(df.at[idx, "pmid"]).strip()
+
     not_duplicate = df["is_duplicate"].astype(str).str.lower() != "true"
     not_manual_duplicate = df["validation_action"].astype(str).str.lower() != "mark_duplicate"
     df.loc[not_duplicate & not_manual_duplicate, ["duplicate_reason", "preferred_pmid", "duplicate_group_id"]] = ""

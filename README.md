@@ -169,7 +169,7 @@ Benchmark coverage against published prediction tool datasets:
 - Abstracts only for ~60% of entries; full-text extraction improves coverage for recent open-access papers
 - Cell type names are partially standardized; ontology mapping (Cell Ontology) is planned
 - Factor names use author-reported nomenclature; cross-species gene symbol normalization is incomplete
-- ~89 entries remain flagged `needs_review` and are hidden from the default view pending manual QA
+- ~270 entries remain flagged `needs_review` and are hidden from the default view pending manual QA
 
 ---
 
