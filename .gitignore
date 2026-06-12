@@ -28,3 +28,14 @@ node_modules
 
 # QA 生成物（非源码，默认不交）
 qa_outputs/
+
+# 中间数据快照 / 验证输出（被 recipes_master_v2.csv 取代）
+recipes*.csv
+!recipes_master_v2.csv
+verification_sample*
+validation_metrics*.csv
+
+# 文档 / 表格资产（生成物）
+*.xlsx
+*.docx
+*.pdf
