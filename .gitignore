@@ -17,3 +17,8 @@ __pycache__/
 # 系统文件
 .DS_Store
 ~$*
+
+# 依赖与大文件/输出
+node_modules/
+*.zip
+*.numbers

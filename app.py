@@ -3,6 +3,32 @@ import pandas as pd
 import re
 from pathlib import Path
 
+try:
+    from mark_duplicates import split_factors
+except Exception:
+    # Fallback: paren-aware splitter on , and ; only (never on "/").
+    def split_factors(value):
+        text = str(value or "").strip()
+        if not text:
+            return []
+        parts, buf, depth = [], [], 0
+        for ch in text:
+            if ch == "(":
+                depth += 1
+            elif ch == ")" and depth:
+                depth -= 1
+            if ch in {",", ";"} and depth == 0:
+                p = "".join(buf).strip()
+                if p:
+                    parts.append(p)
+                buf = []
+            else:
+                buf.append(ch)
+        p = "".join(buf).strip()
+        if p:
+            parts.append(p)
+        return parts
+
 st.set_page_config(
     page_title="CellReprogramDB",
     page_icon="🧬",
@@ -49,7 +75,7 @@ def load_data(data_mtime: float, journals_mtime: float):
         s = str(s).strip()
         if not s or s.lower() == "not specified":
             return 0
-        return len([f for f in re.split(r"[,;/]", s) if f.strip()])
+        return len(split_factors(s))
     df["factor_count"] = df["factors"].apply(_count_factors)
 
     # Search helper: make punctuation/case variants searchable as one concept.
@@ -97,7 +123,7 @@ SCOPE_LABELS = {
     "unclear": "Unclear",
 }
 
-HIDDEN_VALIDATION_ACTIONS = {"remove", "hide_incomplete_recipe", "hide_single_tf"}
+HIDDEN_VALIDATION_ACTIONS = {"remove", "hide_incomplete_recipe", "hide_single_tf", "hide_model_adjudicated"}
 
 DEDUP_MODE_LABELS = {
     "broad": "Broad cell-type merge",
@@ -204,7 +230,14 @@ with st.sidebar:
                              key="ft",
                              default=st.session_state.get("ft",[]))
 
-    species_opts = ["human", "mouse", "human, mouse", "mouse, human"]
+    preferred_species = ["human", "mouse", "human, mouse", "rat", "porcine", "bovine", "zebrafish"]
+    observed_species = [
+        s.strip()
+        for s in df["species"].dropna().astype(str).unique().tolist()
+        if s.strip()
+    ]
+    species_opts = [s for s in preferred_species if s in observed_species]
+    species_opts.extend(sorted(s for s in observed_species if s not in species_opts))
     sp_sel = st.multiselect("Species", species_opts,
                              key="sp",
                              default=st.session_state.get("sp",[]))
@@ -424,7 +457,8 @@ _defaults_active = (
 if _defaults_active and len(filtered) < len(df):
     st.caption(
         f"Showing {len(filtered):,} of {len(df):,} total recipes. "
-        "Default filters are active (high/medium confidence · research papers · broad duplicates hidden). "
+        "Default filters are active (high/medium confidence · research papers · "
+        "broad duplicates hidden · specified factors · validated single-TF entries). "
         "Click **✖ Clear all** in the sidebar to see all entries."
     )
 
