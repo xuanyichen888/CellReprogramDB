@@ -149,6 +149,26 @@ CLASSIC_QUERIES = [
     '(hematopoietic OR blood cell OR macrophage OR neutrophil)[Title/Abstract]',
 ]
 
+# ── 覆盖缺口补检索 ──────────────────────────────────────────────────────────
+# 针对 postdoc 指出的遗漏术语：in vivo / lineage reprogramming、wound-resident
+# 细胞、in situ 命运转换等。这些老/特殊术语不被上面的主查询覆盖。
+COVERAGE_GAP_QUERIES = [
+    '("wound-resident"[Title/Abstract] OR "wound resident"[Title/Abstract]) AND '
+    '(reprogramming OR conversion OR transdifferentiation OR fate)[Title/Abstract]',
+
+    '"in vivo reprogramming"[Title/Abstract]',
+
+    '("in vivo"[Title/Abstract]) AND '
+    '("direct reprogramming"[Title/Abstract] OR "lineage reprogramming"[Title/Abstract])',
+
+    '"lineage reprogramming"[Title/Abstract]',
+
+    '("in vivo"[Title/Abstract]) AND (transdifferentiation[Title/Abstract])',
+
+    '("in situ"[Title/Abstract]) AND (reprogramming OR "fate conversion")[Title/Abstract] AND '
+    '(transcription factor OR defined factors)[Title/Abstract]',
+]
+
 ALL_QUERIES = [
     ("TF",             q) for q in TF_QUERIES
 ] + [
@@ -157,6 +177,8 @@ ALL_QUERIES = [
     ("miRNA",          q) for q in MIRNA_QUERIES
 ] + [
     ("classic",        q) for q in CLASSIC_QUERIES
+] + [
+    ("coverage_gap",   q) for q in COVERAGE_GAP_QUERIES
 ]
 
 

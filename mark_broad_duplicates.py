@@ -140,6 +140,9 @@ def choose_keep(group: pd.DataFrame) -> int:
         | (ranked["validation_recipe_valid"].astype(str).str.lower() == "no")
     ).astype(int)
     ranked["_paper_rank"] = ranked["paper_type"].map({"research": 0, "review": 1, "other": 2}).fillna(3)
+    ranked["_needs_review_rank"] = (
+        ranked["validation_needs_review"].astype(str).str.lower().isin({"true", "1", "yes"})
+    ).astype(int)
     ranked["_year_rank"] = pd.to_numeric(ranked["year"], errors="coerce").fillna(9999).astype(int)
     ranked["_source_rank"] = ranked["source"].map({"fulltext": 0, "manual": 0, "abstract": 1}).fillna(2)
     ranked["_conf_rank"] = ranked["confidence"].map({"high": 0, "medium": 1, "low": 2}).fillna(3)
@@ -148,6 +151,7 @@ def choose_keep(group: pd.DataFrame) -> int:
         [
             "_manual_hide_rank",
             "_paper_rank",
+            "_needs_review_rank",
             "_year_rank",
             "_source_rank",
             "_conf_rank",
