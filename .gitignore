@@ -39,3 +39,23 @@ validation_metrics*.csv
 *.xlsx
 *.docx
 *.pdf
+
+# 本地-only Node workbook 辅助脚本（依赖 @oai/artifact-tool + 绝对路径，
+# 不可移植）。逐一列出，不用 blanket *.mjs，以免挡住将来可复现的 Node 脚本。
+apply_tcell_manual_review.mjs
+build_immune_qa_workbook.mjs
+build_manual_review_priority.mjs
+build_qa_workbooks.mjs
+build_simple_tcell_review_checklist.mjs
+build_strict_tcell_review_checklist.mjs
+inspect_filled_tcell_review.mjs
+summarize_tcell_manual_review_state.mjs
+verify_immune_audit_workbook.mjs
+verify_immune_update_proposal.mjs
+verify_manual_review_priority.mjs
+verify_qa_workbooks.mjs
+verify_simple_tcell_review_checklist.mjs
+verify_strict_tcell_review_checklist.mjs
+
+# 生成的工作清单
+pmids_need_fulltext.txt
