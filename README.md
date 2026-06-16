@@ -14,7 +14,7 @@ Cell reprogramming — converting one cell type into another using defined facto
 Source cell  →  Target cell  |  Factors  |  Species  |  Confidence
 ```
 
-The database currently contains **4,369 recipes** from **2,826 papers** (1996–2026), covering transcription factor cocktails, small molecules, miRNAs, and knockdown-based conversions.
+Built from ~3,050 papers (1996–2026), the database currently presents **2,347 curated recipes** in its default view — covering transcription factor cocktails, small molecules, cytokines, miRNAs, and knockdown-based conversions. (4,650 total rows including lower-confidence and staged entries.)
 
 ---
 
@@ -120,6 +120,30 @@ papers.csv                 Raw PubMed abstracts
 fulltext.csv               PMC full-text excerpts
 requirements.txt           Python dependencies
 ```
+
+## Protein Interaction Pilot
+
+This repository now also includes a small pilot pipeline for Wang Lab's proposed
+extension from cell-reprogramming recipes to protein interaction pairs:
+
+```
+binder / antibody → target / antigen | amino-acid sequences | evidence / label
+```
+
+Run:
+
+```bash
+python3 build_protein_interaction_pilots.py
+```
+
+This creates:
+
+- `protein_interaction_outputs/de_novo_binder_pilot.csv`
+- `protein_interaction_outputs/antibody_antigen_pilot.csv`
+- `protein_interaction_outputs/manual_validation_sample.csv`
+- `protein_interaction_outputs/protein_interaction_validation_memo.md`
+
+See `PROTEIN_INTERACTION_PIPELINE.md` for scope, schema, and validation notes.
 
 ---
 
