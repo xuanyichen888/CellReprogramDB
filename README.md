@@ -85,9 +85,9 @@ QA / curation pipeline
 - Recipes are classified as classical reprogramming, lineage conversion, directed differentiation, cell-state modulation, or unclear
 - Remaining unclear rows are processed by a checkpointed DeepSeek pass, with low-confidence cases left as `unclear`
 
-**Benchmark validation**
-- Coverage verified against Taiji-reprogram and TFcomb validated recipe sets
-- >87% recall on landmark reprogramming recipes
+**Validation (honest, not over-claimed)**
+- Manual QA on a stratified sample (n=50): ~62% *strict* precision (source, target, and factors all exactly correct) and ~96% *relaxed* precision (reprogramming event correctly identified)
+- TFcomb (Kamimoto et al. 2023): 7/7 experimental reference recipes covered; Taiji-reprogram landmark recipes mostly covered, with some liver-cocktail gaps
 
 **Interactive Streamlit app**
 - Filter by target/source cell type, factors, species, confidence, paper type, journal, year range
@@ -180,7 +180,7 @@ python extract_evidence.py   # Step 3: extract evidence sentences
 
 ## Validation
 
-Manual QA was performed on a stratified random sample (n=100) of high/medium confidence entries. Precision on the curated default view: **~91%** (recipes where source cell, target cell, and factors are correctly extracted and supported by the cited paper).
+Manual QA was performed on a stratified random sample (n=50) of high/medium confidence entries on the curated default view. **Strict precision ~62%** (source cell, target cell, AND factors all exactly correct and supported by the cited paper); **relaxed precision ~96%** (the reprogramming event is correctly identified, allowing minor source/target/factor specificity differences). The main quality risk is exact source/target/factor specificity, not failing to detect reprogramming.
 
 Benchmark coverage against published prediction tool datasets:
 - **TFcomb** (Kamimoto et al. 2023): 7/7 experimental reference recipes covered
