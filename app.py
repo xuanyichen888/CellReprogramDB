@@ -35,6 +35,28 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── Broad biological cell categories (for coarse filtering) ────────────────────
+CELL_CATEGORY_PATTERNS = {
+    "immune": r"\bt[\s-]?cell|t lymph|b[\s-]?cell|b lymph|treg|th1|th17|tfh|cd4|cd8|macrophage|monocyte|dendritic|nk cell|natural killer|microglia|mast cell|neutrophil|thymocyte|lymphocyte|myeloid|leukocyte|granulocyte",
+    "neural": r"neuron|neural|astrocyte|oligodendrocyte|\bglia|dopaminergic|gabaergic|glutamatergic|motor neuron|photoreceptor|retinal|schwann|neuroblast",
+    "hepatic": r"hepatocyte|hepatic|\bliver",
+    "cardiac": r"cardiomyocyte|cardiac|myocard",
+    "pancreatic": r"pancrea|islet|beta[\s-]?cell|insulin-producing|acinar|ductal",
+    "pluripotent/stem": r"pluripotent|ips[c]?\b|embryonic stem|\besc\b|stem cell|totipotent|naive pluripotent",
+    "fibroblast": r"fibroblast|\bmef\b",
+    "endothelial": r"endothelial|huvec|vascular",
+    "hematopoietic": r"hematopoietic|haematopoietic|erythrocyte|megakaryocyte|platelet|blood cell|hspc",
+    "epithelial/skin": r"keratinocyte|epitheli|epiderm",
+    "muscle": r"myoblast|myocyte|skeletal muscle|myotube|myofibroblast",
+}
+
+
+def _cell_categories(text: str) -> str:
+    low = str(text).lower()
+    cats = [c for c, pat in CELL_CATEGORY_PATTERNS.items() if re.search(pat, low)]
+    return ", ".join(cats)
+
+
 # ── Load data ─────────────────────────────────────────────────────────────────
 DATA_PATH = Path("recipes_master_v2.csv")
 JOURNALS_PATH = Path("journals.csv")
@@ -98,6 +120,11 @@ def load_data(data_mtime: float, journals_mtime: float):
         return f"{normalized} {compact}"
 
     df["_search_blob"] = df.apply(_make_search_blob, axis=1)
+
+    # Broad cell category from source + target (a row matches if either side fits)
+    _src = df["source_cell_std"] if "source_cell_std" in df.columns else df["source_cell"]
+    _tgt = df["target_cell_std"] if "target_cell_std" in df.columns else df["target_cell"]
+    df["_cell_cats"] = (_src.astype(str) + " " + _tgt.astype(str)).apply(_cell_categories)
 
     # year列已预合并在CSV中
     if "year" in df.columns:
@@ -229,6 +256,25 @@ with st.sidebar:
     ft_sel = st.multiselect("Factor type", factor_types,
                              key="ft",
                              default=st.session_state.get("ft",[]))
+
+    factor_class = st.radio(
+        "Factor class",
+        ["All", "Contains a TF", "Chemical (small molecule)", "Non-TF only"],
+        key="factor_class",
+        index=["All", "Contains a TF", "Chemical (small molecule)", "Non-TF only"].index(
+            st.session_state.get("factor_class", "All")),
+        help="Quick view of chemical reprogramming and non-TF recipes. 'Non-TF only' = no transcription "
+             "factor at all (small molecules, cytokines, miRNAs, knockdowns).",
+    )
+
+    cell_cat_opts = sorted(CELL_CATEGORY_PATTERNS.keys())
+    cell_cat_sel = st.multiselect(
+        "Cell category (broad)", cell_cat_opts,
+        key="cell_cat",
+        default=st.session_state.get("cell_cat", []),
+        help="Coarse biological grouping by source or target cell — immune, neural, hepatic, cardiac, "
+             "pancreatic, etc. — instead of the fine-grained cell name.",
+    )
 
     preferred_species = ["human", "mouse", "human, mouse", "rat", "porcine", "bovine", "zebrafish"]
     observed_species = [
@@ -365,11 +411,13 @@ if search:
         return re.sub(r"\s+", " ", text).strip()
 
     query = _normalize_query(search)
-    compact_query = re.sub(r"[^a-z0-9]+", "", query)
-    mask = filtered["_search_blob"].str.contains(re.escape(query), na=False)
-    if compact_query and compact_query != query:
-        mask = mask | filtered["_search_blob"].str.contains(re.escape(compact_query), na=False)
-    filtered = filtered[mask]
+    if query:
+        # Word-boundary match so "T cell" / "T-cell" hit genuine T cells, not
+        # substrings inside words like "pluripoten[t cell]s" or "fibroblas[t cell]".
+        mask = filtered["_search_blob"].str.contains(
+            r"\b" + re.escape(query) + r"\b", na=False, regex=True
+        )
+        filtered = filtered[mask]
 
 if target_sel:
     filtered = filtered[filtered[_tgt_col].isin(target_sel)]
@@ -381,6 +429,20 @@ if ft_sel:
     def has_ft(s):
         return any(t.strip() in ft_sel for t in s.split(","))
     filtered = filtered[filtered["factor_type"].apply(has_ft)]
+
+if factor_class and factor_class != "All":
+    def _ftypes(s):
+        return {t.strip().lower() for t in str(s).split(",") if t.strip()}
+    if factor_class == "Contains a TF":
+        filtered = filtered[filtered["factor_type"].apply(lambda s: any("tf" in t for t in _ftypes(s)))]
+    elif factor_class == "Chemical (small molecule)":
+        filtered = filtered[filtered["factor_type"].apply(lambda s: any("small" in t for t in _ftypes(s)))]
+    elif factor_class == "Non-TF only":
+        filtered = filtered[filtered["factor_type"].apply(lambda s: bool(_ftypes(s)) and not any("tf" in t for t in _ftypes(s)))]
+
+if cell_cat_sel:
+    filtered = filtered[filtered["_cell_cats"].apply(
+        lambda c: any(cat in [x.strip() for x in str(c).split(",")] for cat in cell_cat_sel))]
 
 if sp_sel:
     filtered = filtered[filtered["species"].isin(sp_sel)]
