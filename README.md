@@ -14,7 +14,7 @@ Cell reprogramming — converting one cell type into another using defined facto
 Source cell  →  Target cell  |  Factors  |  Species  |  Confidence
 ```
 
-Built from ~3,050 papers (1996–2026), the database currently presents **2,347 curated recipes** in its default view — covering transcription factor cocktails, small molecules, cytokines, miRNAs, and knockdown-based conversions. (4,650 total rows including lower-confidence and staged entries.)
+Built from ~3,050 papers (1992–2026), the database currently presents **2,347 curated recipes** in its default view — covering transcription factor cocktails, small molecules, cytokines, miRNAs, and knockdown-based conversions. (4,650 total rows including lower-confidence and staged entries.)
 
 ---
 
@@ -91,7 +91,10 @@ QA / curation pipeline
 
 **Interactive Streamlit app**
 - Filter by target/source cell type, factors, species, confidence, paper type, journal, year range
+- Switch between **Unique recipes** and **All paper records**; unique recipe rows list supporting PMIDs rather than silently hiding duplicate papers
 - Switch between exact recipe deduplication and broad cell-type merge mode
+- Filter by factor class (contains TF, chemical/small-molecule, non-TF only) and broad cell category (immune, neural, hepatic, cardiac, pancreatic, etc.)
+- Inspect evidence source and local full-text cache status (`abstract`, `full text`, `manual`; full text available vs recipe extracted from full text)
 - Dynamic charts: recipes by year, top target cell types, factor type distribution
 - Downloadable filtered CSV
 
@@ -194,6 +197,7 @@ Benchmark coverage against published prediction tool datasets:
 - Cell type names are partially standardized; ontology mapping (Cell Ontology) is planned
 - Factor names use author-reported nomenclature; cross-species gene symbol normalization is incomplete
 - ~270 entries remain flagged `needs_review` and are hidden from the default view pending manual QA
+- `full text available` means the paper has text in the local cache; it does not mean every recipe from that paper has been manually verified from the full text
 
 ---
 

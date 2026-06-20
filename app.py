@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 try:
-    from mark_duplicates import split_factors
+    from mark_duplicates import split_factors, factor_key
 except Exception:
     # Fallback: paren-aware splitter on , and ; only (never on "/").
     def split_factors(value):
@@ -28,6 +28,11 @@ except Exception:
         if p:
             parts.append(p)
         return parts
+
+    def factor_key(value):
+        parts = [re.sub(r"[^A-Za-z0-9]+", "", p).upper() for p in split_factors(value)]
+        parts = [p for p in parts if p]
+        return " | ".join(sorted(parts))
 
 st.set_page_config(
     page_title="CellReprogramDB",
@@ -60,6 +65,7 @@ def _cell_categories(text: str) -> str:
 # ── Load data ─────────────────────────────────────────────────────────────────
 DATA_PATH = Path("recipes_master_v2.csv")
 JOURNALS_PATH = Path("journals.csv")
+FULLTEXT_PATH = Path("fulltext.csv")
 
 
 def _file_mtime(path: Path) -> float:
@@ -67,9 +73,11 @@ def _file_mtime(path: Path) -> float:
 
 
 @st.cache_data
-def load_data(data_mtime: float, journals_mtime: float):
+def load_data(data_mtime: float, journals_mtime: float, fulltext_mtime: float):
     df = pd.read_csv(DATA_PATH, dtype=str).fillna("")
     for col, default in {
+        "title": "",
+        "source": "",
         "single_tf_flag": "False",
         "single_tf_status": "",
         "conversion_scope": "unclear",
@@ -100,6 +108,110 @@ def load_data(data_mtime: float, journals_mtime: float):
         return len(split_factors(s))
     df["factor_count"] = df["factors"].apply(_count_factors)
 
+    # Evidence/full-text status. This is deliberately conservative: a cached
+    # full-text row means local text is available, not that every recipe in that
+    # paper has been manually confirmed from full text.
+    fulltext_pmids = set()
+    try:
+        fulltext = pd.read_csv(FULLTEXT_PATH, dtype=str).fillna("")
+        methods_text = fulltext["methods_text"] if "methods_text" in fulltext.columns else pd.Series("", index=fulltext.index)
+        results_text = fulltext["results_text"] if "results_text" in fulltext.columns else pd.Series("", index=fulltext.index)
+        has_text = methods_text.astype(str).str.strip().ne("") | results_text.astype(str).str.strip().ne("")
+        fulltext_pmids = set(fulltext.loc[has_text, "pmid"].astype(str))
+    except FileNotFoundError:
+        pass
+
+    source_label = {
+        "abstract": "abstract",
+        "fulltext": "full text",
+        "manual": "manual",
+    }
+    df["evidence_source"] = (
+        df["source"].astype(str).str.strip().str.lower().map(source_label).fillna(df["source"])
+    )
+    df["fulltext_status"] = "not in local full-text cache"
+    df.loc[df["pmid"].astype(str).isin(fulltext_pmids), "fulltext_status"] = "full text available"
+    df.loc[df["source"].astype(str).str.lower().eq("fulltext"), "fulltext_status"] = (
+        "recipe extracted from full text"
+    )
+
+    def _norm_key_text(value):
+        text = str(value or "").strip().lower()
+        text = (
+            text.replace("β", "beta")
+                .replace("α", "alpha")
+                .replace("γ", "gamma")
+                .replace("δ", "delta")
+        )
+        text = re.sub(r"[-_/]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _unique_in_order(values):
+        seen = set()
+        out = []
+        for value in values:
+            value = str(value).strip()
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+        return out
+
+    def _preview(items, limit):
+        items = [str(item).strip() for item in items if str(item).strip()]
+        if len(items) <= limit:
+            return "; ".join(items)
+        return "; ".join(items[:limit]) + f"; ... (+{len(items) - limit} more)"
+
+    def _add_support_columns(prefix, source_col, target_col):
+        src = df[source_col].where(df[source_col].astype(str).str.strip().ne(""), df["source_cell"])
+        tgt = df[target_col].where(df[target_col].astype(str).str.strip().ne(""), df["target_cell"])
+        keys = (
+            src.apply(_norm_key_text)
+            + "\x1f"
+            + tgt.apply(_norm_key_text)
+            + "\x1f"
+            + df["factors"].apply(factor_key).astype(str)
+        )
+        work = df.assign(_cluster_key=keys)
+        count_col = f"{prefix}_supporting_paper_count"
+        pmids_col = f"{prefix}_supporting_pmids"
+        pmids_preview_col = f"{prefix}_supporting_pmids_preview"
+        papers_preview_col = f"{prefix}_supporting_papers_preview"
+        df[count_col] = 1
+        df[pmids_col] = df["pmid"].astype(str)
+        df[pmids_preview_col] = df["pmid"].astype(str)
+        df[papers_preview_col] = ""
+
+        year_num = pd.to_numeric(df["year"], errors="coerce").fillna(9999).astype(int)
+        for _, group in work.groupby("_cluster_key", sort=False):
+            ordered = group.assign(_year_num=year_num.loc[group.index]).sort_values(
+                ["_year_num", "pmid"], kind="mergesort"
+            )
+            pmids = _unique_in_order(ordered["pmid"].tolist())
+            first_by_pmid = ordered.drop_duplicates("pmid", keep="first")
+            paper_labels = []
+            for _, row in first_by_pmid.iterrows():
+                pmid = str(row.get("pmid", "")).strip()
+                year = str(row.get("year", "")).strip()
+                title = str(row.get("title", "")).strip()
+                label = pmid
+                if year and year != "0":
+                    label += f" ({year})"
+                if title:
+                    label += ": " + title[:140]
+                paper_labels.append(label)
+            df.loc[group.index, count_col] = len(pmids)
+            df.loc[group.index, pmids_col] = ", ".join(pmids)
+            df.loc[group.index, pmids_preview_col] = _preview(pmids, 12)
+            df.loc[group.index, papers_preview_col] = _preview(paper_labels, 6)
+
+    exact_source_col = "source_cell_std" if "source_cell_std" in df.columns else "source_cell"
+    exact_target_col = "target_cell_std" if "target_cell_std" in df.columns else "target_cell"
+    broad_source_col = "source_cell_broad" if "source_cell_broad" in df.columns else exact_source_col
+    broad_target_col = "target_cell_broad" if "target_cell_broad" in df.columns else exact_target_col
+    _add_support_columns("exact", exact_source_col, exact_target_col)
+    _add_support_columns("broad", broad_source_col, broad_target_col)
+
     # Search helper: make punctuation/case variants searchable as one concept.
     # Examples: "T-cell", "T cell", and "Tcell"; "β-cell" and "beta cell".
     def _normalize_search_text(value):
@@ -114,8 +226,17 @@ def load_data(data_mtime: float, journals_mtime: float):
         text = re.sub(r"[^a-z0-9]+", " ", text)
         return re.sub(r"\s+", " ", text).strip()
 
+    search_cols = [
+        "pmid", "title", "source_cell", "target_cell", "source_cell_std", "target_cell_std",
+        "source_cell_broad", "target_cell_broad", "factors", "factor_type", "species",
+        "journal", "confidence", "paper_type", "conversion_scope", "evidence_sentence",
+        "exact_supporting_pmids", "broad_supporting_pmids",
+    ]
+
     def _make_search_blob(row):
-        normalized = " ".join(_normalize_search_text(v) for v in row.values)
+        normalized = " ".join(
+            _normalize_search_text(row.get(col, "")) for col in search_cols if col in row.index
+        )
         compact = re.sub(r"[^a-z0-9]+", "", normalized)
         return f"{normalized} {compact}"
 
@@ -140,7 +261,7 @@ def load_data(data_mtime: float, journals_mtime: float):
         df["journal"] = ""
     return df
 
-df = load_data(_file_mtime(DATA_PATH), _file_mtime(JOURNALS_PATH))
+df = load_data(_file_mtime(DATA_PATH), _file_mtime(JOURNALS_PATH), _file_mtime(FULLTEXT_PATH))
 
 SCOPE_LABELS = {
     "classical_reprogramming": "Classical reprogramming",
@@ -169,6 +290,8 @@ def is_true(value: str) -> bool:
 
 exact_dedup_df = df[df["is_duplicate"].astype(str).str.lower() != "true"]
 broad_dedup_df = df[df["is_broad_duplicate"].astype(str).str.lower() != "true"]
+year_values = df["year"][df["year"] > 0]
+year_label = f"{int(year_values.min())}–{int(year_values.max())}" if len(year_values) else "year unknown"
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🧬 CellReprogramDB")
@@ -176,7 +299,7 @@ st.markdown(
     "A curated database of cell reprogramming recipes extracted from PubMed literature.  \n"
     f"**{len(broad_dedup_df):,} broad-merged recipes** · "
     f"**{len(exact_dedup_df):,} exact recipes** · "
-    f"**{len(df):,} raw records** · **1996–2026** "
+    f"**{len(df):,} raw records** · **{year_label}** "
     "<span style='font-size:0.82em;color:#888;'>(duplicates are flagged, not deleted)</span>",
     unsafe_allow_html=True,
 )
@@ -194,12 +317,14 @@ with st.sidebar:
         st.session_state["target"]         = []
         st.session_state["source"]         = []
         st.session_state["ft"]             = []
+        st.session_state["factor_class"]   = "All"
+        st.session_state["cell_cat"]       = []
         st.session_state["sp"]             = []
         st.session_state["conf"]           = []
         st.session_state["pt"]             = []
         st.session_state["scope"]          = []
         st.session_state["journal_search"] = ""
-        st.session_state["hide_dupes"]       = False
+        st.session_state["record_mode"]      = "All paper records"
         st.session_state["dedup_mode"]       = "exact"
         st.session_state["hide_no_factors"]  = False
         st.session_state["hide_cocktail_tf"] = False
@@ -207,6 +332,8 @@ with st.sidebar:
         st.session_state["hide_needs_review"]        = False
         st.session_state["show_validation_review"]   = False
         st.session_state["single_tf_status_filter"]  = []
+        st.session_state["evidence_source_filter"]   = []
+        st.session_state["fulltext_status_filter"]   = []
         st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
@@ -217,12 +344,14 @@ with st.sidebar:
         st.session_state["target"]         = []
         st.session_state["source"]         = []
         st.session_state["ft"]             = []
+        st.session_state["factor_class"]   = "All"
+        st.session_state["cell_cat"]       = []
         st.session_state["sp"]             = []
         st.session_state["conf"]           = ["high", "medium"]
         st.session_state["pt"]             = ["research"]
         st.session_state["scope"]          = []
         st.session_state["journal_search"] = ""
-        st.session_state["hide_dupes"]       = True
+        st.session_state["record_mode"]      = "Unique recipes"
         st.session_state["dedup_mode"]       = "broad"
         st.session_state["hide_no_factors"]  = True
         st.session_state["hide_cocktail_tf"] = True
@@ -230,6 +359,8 @@ with st.sidebar:
         st.session_state["hide_needs_review"]        = True
         st.session_state["show_validation_review"]   = False
         st.session_state["single_tf_status_filter"]  = []
+        st.session_state["evidence_source_filter"]   = []
+        st.session_state["fulltext_status_filter"]   = []
         st.session_state["factor_count_range"] = (1, int(df["factor_count"].max()))
         st.session_state["year_range"]     = (int(df["year"][df["year"]>0].min()),
                                               int(df["year"].max()))
@@ -310,10 +441,19 @@ with st.sidebar:
                                    value=st.session_state.get("journal_search", ""))
 
     st.divider()
-    hide_dupes      = st.checkbox("Hide duplicate recipes",
-                                   value=st.session_state.get("hide_dupes", True),
-                                   key="hide_dupes",
-                                   help="Keep only the earliest research paper per unique recipe")
+    record_modes = ["Unique recipes", "All paper records"]
+    record_mode_default = st.session_state.get("record_mode", "Unique recipes")
+    if record_mode_default not in record_modes:
+        record_mode_default = "Unique recipes"
+    record_mode = st.radio(
+        "Record display",
+        record_modes,
+        key="record_mode",
+        index=record_modes.index(record_mode_default),
+        help="Unique recipes keeps one representative row per recipe cluster and lists supporting PMIDs. "
+             "All paper records shows every extracted paper row, including duplicate recipes.",
+    )
+    hide_dupes = record_mode == "Unique recipes"
     dedup_mode = st.selectbox(
         "Deduplication mode",
         ["broad", "exact"],
@@ -364,6 +504,28 @@ with st.sidebar:
             key="single_tf_status_filter",
             default=st.session_state.get("single_tf_status_filter", []),
             help="Inspect single-transcription-factor entries by curation status",
+        )
+        evidence_source_opts = sorted(s for s in df["evidence_source"].unique().tolist() if str(s).strip())
+        evidence_source_filter = st.multiselect(
+            "Evidence source",
+            evidence_source_opts,
+            key="evidence_source_filter",
+            default=st.session_state.get("evidence_source_filter", []),
+            help="Where the extracted recipe/evidence came from: abstract, full text, or manual curation.",
+        )
+        fulltext_status_opts = [
+            s for s in [
+                "recipe extracted from full text",
+                "full text available",
+                "not in local full-text cache",
+            ] if s in set(df["fulltext_status"])
+        ]
+        fulltext_status_filter = st.multiselect(
+            "Full-text status",
+            fulltext_status_opts,
+            key="fulltext_status_filter",
+            default=st.session_state.get("fulltext_status_filter", []),
+            help="Local full-text cache status. 'Full text available' does not mean the row has been manually checked.",
         )
 
     with st.expander("Confidence criteria", expanded=False):
@@ -459,6 +621,12 @@ if scope_sel:
 if journal_search:
     filtered = filtered[filtered["journal"].str.contains(journal_search, case=False, na=False)]
 
+if evidence_source_filter:
+    filtered = filtered[filtered["evidence_source"].isin(evidence_source_filter)]
+
+if fulltext_status_filter:
+    filtered = filtered[filtered["fulltext_status"].isin(fulltext_status_filter)]
+
 if hide_dupes and not show_validation_review:
     duplicate_col = "is_broad_duplicate" if dedup_mode == "broad" else "is_duplicate"
     if duplicate_col in filtered.columns:
@@ -501,8 +669,17 @@ filtered = filtered[
 c1, c2, c3, c4 = st.columns(4)
 _metric_tgt_col = "target_cell_broad" if hide_dupes and dedup_mode == "broad" and "target_cell_broad" in filtered.columns else _tgt_col
 _metric_src_col = "source_cell_broad" if hide_dupes and dedup_mode == "broad" and "source_cell_broad" in filtered.columns else _src_col
+_support_prefix = "broad" if dedup_mode == "broad" else "exact"
+_support_pmids_col = f"{_support_prefix}_supporting_pmids"
+if hide_dupes and _support_pmids_col in filtered.columns:
+    _paper_set = set()
+    for values in filtered[_support_pmids_col]:
+        _paper_set.update(p.strip() for p in str(values).split(",") if p.strip())
+    papers_metric = len(_paper_set)
+else:
+    papers_metric = filtered["pmid"].nunique()
 c1.metric("Recipes shown",     len(filtered))
-c2.metric("Papers",            filtered["pmid"].nunique())
+c2.metric("Papers represented", papers_metric)
 c3.metric("Target cell types", filtered[_metric_tgt_col].nunique())
 c4.metric("Source cell types", filtered[_metric_src_col].nunique())
 
@@ -510,7 +687,7 @@ c4.metric("Source cell types", filtered[_metric_src_col].nunique())
 _defaults_active = (
     st.session_state.get("conf", ["high","medium"]) == ["high","medium"] and
     st.session_state.get("pt",  ["research"])       == ["research"]      and
-    st.session_state.get("hide_dupes",       True) and
+    st.session_state.get("record_mode", "Unique recipes") == "Unique recipes" and
     st.session_state.get("dedup_mode", "broad") == "broad" and
     st.session_state.get("hide_no_factors",  True) and
     st.session_state.get("hide_cocktail_tf", True) and
@@ -520,17 +697,32 @@ if _defaults_active and len(filtered) < len(df):
     st.caption(
         f"Showing {len(filtered):,} of {len(df):,} total recipes. "
         "Default filters are active (high/medium confidence · research papers · "
-        "broad duplicates hidden · specified factors · validated single-TF entries). "
+        "unique broad recipe clusters · specified factors · validated single-TF entries). "
         "Click **✖ Clear all** in the sidebar to see all entries."
     )
+
+if hide_dupes:
+    st.caption(
+        "Unique recipe view: each visible row is the representative record for a recipe cluster; "
+        "supporting PMIDs list other papers with the same recipe under the selected deduplication mode."
+    )
+else:
+    st.caption("All paper records view: duplicate recipe rows are shown instead of clustered.")
 
 st.divider()
 
 # ── Main table ────────────────────────────────────────────────────────────────
+support_count_col = f"{_support_prefix}_supporting_paper_count"
+support_pmids_preview_col = f"{_support_prefix}_supporting_pmids_preview"
+support_papers_preview_col = f"{_support_prefix}_supporting_papers_preview"
 display_cols = [
-    "pmid","source_cell","target_cell",
+    "pmid","title",
+    support_count_col, support_pmids_preview_col,
+    "source_cell","target_cell",
     "factors","factor_type","species","year",
-    "journal","confidence","paper_type","conversion_scope","evidence_sentence",
+    "journal","confidence","paper_type","conversion_scope",
+    "evidence_source","fulltext_status","evidence_sentence",
+    support_papers_preview_col,
 ]
 if show_validation_review:
     display_cols.extend([
@@ -550,6 +742,11 @@ display_df["conversion_scope"] = display_df["conversion_scope"].map(
 display_df["pmid_link"] = display_df["pmid"].apply(
     lambda p: f"https://pubmed.ncbi.nlm.nih.gov/{p}"
 )
+_cols = display_df.columns.tolist()
+if "pmid" in _cols and "pmid_link" in _cols:
+    _cols.remove("pmid_link")
+    _cols.insert(_cols.index("pmid") + 1, "pmid_link")
+    display_df = display_df[_cols]
 
 st.dataframe(
     display_df,
@@ -559,6 +756,10 @@ st.dataframe(
         "pmid":              st.column_config.TextColumn("PMID",        width=80),
         "pmid_link":         st.column_config.LinkColumn("↗",           width=40,
                                                           display_text="🔗"),
+        "title":             st.column_config.TextColumn("Title",       width=300),
+        support_count_col:    st.column_config.NumberColumn("Supporting papers", width=120, format="%d"),
+        support_pmids_preview_col: st.column_config.TextColumn("Supporting PMIDs", width=260),
+        support_papers_preview_col: st.column_config.TextColumn("Supporting papers preview", width=420),
         "source_cell":       st.column_config.TextColumn("Source cell", width=170),
         "target_cell":       st.column_config.TextColumn("Target cell", width=170),
         "factors":           st.column_config.TextColumn("Factors",     width=230),
@@ -570,6 +771,8 @@ st.dataframe(
         "confidence":        st.column_config.TextColumn("Conf.",       width=70),
         "paper_type":        st.column_config.TextColumn("Paper",       width=75),
         "conversion_scope":   st.column_config.TextColumn("Scope",       width=150),
+        "evidence_source":    st.column_config.TextColumn("Evidence source", width=95),
+        "fulltext_status":    st.column_config.TextColumn("Full-text status", width=170),
         "evidence_sentence": st.column_config.TextColumn("Evidence sentence", width=380),
         "validation_action": st.column_config.TextColumn("Validation action", width=120),
         "validation_resolution": st.column_config.TextColumn("Validation resolution", width=180),
