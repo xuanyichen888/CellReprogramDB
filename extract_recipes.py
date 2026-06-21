@@ -10,6 +10,8 @@ import csv
 import json
 import os
 import time
+import argparse
+from pathlib import Path
 from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -146,12 +148,42 @@ def load_checkpoint(path):
     return set()
 
 def save_checkpoint(processed, path):
-    with open(path, "w") as f:
+    checkpoint_path = Path(path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    with checkpoint_path.open("w") as f:
         json.dump(list(processed), f)
 
 def load_papers(path):
     with open(path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+def load_requested_pmids(value):
+    if not value:
+        return None
+    path = Path(value)
+    if path.exists():
+        if path.suffix.lower() == ".csv":
+            with path.open(newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                if "pmid" not in (reader.fieldnames or []):
+                    raise SystemExit(f"ERROR: {path} has no 'pmid' column")
+                return [row["pmid"].strip() for row in reader if row.get("pmid", "").strip()]
+        return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [p.strip() for p in value.split(",") if p.strip()]
+
+def select_papers(papers, pmids=None, limit=None, offset=0):
+    selected = papers
+    if pmids is not None:
+        wanted = list(dict.fromkeys(str(p).strip() for p in pmids if str(p).strip()))
+        wanted_set = set(wanted)
+        order = {pmid: i for i, pmid in enumerate(wanted)}
+        selected = [p for p in selected if str(p.get("pmid", "")).strip() in wanted_set]
+        selected.sort(key=lambda p: order.get(str(p.get("pmid", "")).strip(), len(order)))
+    if offset:
+        selected = selected[offset:]
+    if limit:
+        selected = selected[:limit]
+    return selected
 
 def call_api(client, pmid, title, abstract):
     user_msg = f"PMID: {pmid}\nTitle: {title}\n\nAbstract:\n{abstract}"
@@ -174,18 +206,20 @@ def parse_response(raw):
             text = text[4:]
     return json.loads(text.strip())
 
-def append_rows(rows):
-    file_exists = os.path.exists(OUTPUT_CSV)
+def append_rows(rows, output_csv):
+    file_exists = os.path.exists(output_csv)
     if file_exists:
-        with open(OUTPUT_CSV, newline="", encoding="utf-8") as fh:
+        with open(output_csv, newline="", encoding="utf-8") as fh:
             existing_fields = csv.DictReader(fh).fieldnames or []
         missing = [f for f in OUTPUT_FIELDS if f not in existing_fields]
         if missing:
             raise SystemExit(
-                f"ERROR: {OUTPUT_CSV} is missing fields {missing}.\n"
+                f"ERROR: {output_csv} is missing fields {missing}.\n"
                 "Delete the output file and checkpoint to start fresh."
             )
-    with open(OUTPUT_CSV, "a", newline="", encoding="utf-8") as f:
+    out_path = Path(output_csv)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=OUTPUT_FIELDS)
         if not file_exists:
             writer.writeheader()
@@ -194,6 +228,50 @@ def append_rows(rows):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Extract cell-reprogramming recipes from PubMed abstract CSVs."
+    )
+    parser.add_argument("--input", default=INPUT_CSV, help=f"Input paper CSV. Default: {INPUT_CSV}")
+    parser.add_argument("--output", default=OUTPUT_CSV, help=f"Output recipe CSV. Default: {OUTPUT_CSV}")
+    parser.add_argument(
+        "--checkpoint",
+        default=CHECKPOINT,
+        help=f"Processed PMID checkpoint JSON. Default: {CHECKPOINT}",
+    )
+    parser.add_argument(
+        "--pmids",
+        default="",
+        help="Comma-separated PMIDs, a text file with one PMID per line, or a CSV with a pmid column.",
+    )
+    parser.add_argument("--limit", type=int, default=0, help="Process at most N selected papers.")
+    parser.add_argument("--offset", type=int, default=0, help="Skip N selected papers before processing.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Only show selected papers and output/checkpoint paths; do not call the API.",
+    )
+    args = parser.parse_args()
+
+    requested_pmids = load_requested_pmids(args.pmids)
+    papers = select_papers(
+        load_papers(args.input),
+        pmids=requested_pmids,
+        limit=args.limit or None,
+        offset=args.offset,
+    )
+
+    if args.dry_run:
+        print(f"Input:      {args.input}")
+        print(f"Output:     {args.output}")
+        print(f"Checkpoint: {args.checkpoint}")
+        print(f"Selected papers: {len(papers)}")
+        for paper in papers[:20]:
+            title = (paper.get("title", "") or "").replace("\n", " ")
+            print(f"  PMID {paper.get('pmid', '')} | {paper.get('year', '')} | {title[:120]}")
+        if len(papers) > 20:
+            print(f"  ... (+{len(papers) - 20} more)")
+        return
+
     if not API_KEY:
         raise SystemExit(
             "ERROR: Set your DeepSeek API key:\n"
@@ -201,8 +279,7 @@ def main():
         )
 
     client    = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-    papers    = load_papers(INPUT_CSV)
-    processed = load_checkpoint(CHECKPOINT)
+    processed = load_checkpoint(args.checkpoint)
 
     total     = len(papers)
     skipped   = 0
@@ -224,7 +301,7 @@ def main():
         if not abstract or len(abstract) < 50:
             print("skipped (no abstract)")
             processed.add(pmid)
-            save_checkpoint(processed, CHECKPOINT)
+            save_checkpoint(processed, args.checkpoint)
             skipped += 1
             continue
 
@@ -235,7 +312,7 @@ def main():
             print(f"JSON error: {e} | raw: {raw[:120]}")
             errors += 1
             processed.add(pmid)
-            save_checkpoint(processed, CHECKPOINT)
+            save_checkpoint(processed, args.checkpoint)
             time.sleep(SLEEP_BETWEEN)
             continue
         except Exception as e:
@@ -277,17 +354,17 @@ def main():
                     "notes":             entry.get("notes", ""),
                 })
             if rows:
-                append_rows(rows)
+                append_rows(rows, args.output)
                 extracted += len(rows)
             suffix = f" (skipped {skipped_status} non-successful)" if skipped_status else ""
             print(f"extracted {len(rows)} recipe(s)  [{paper_type}]{suffix}")
 
         processed.add(pmid)
-        save_checkpoint(processed, CHECKPOINT)
+        save_checkpoint(processed, args.checkpoint)
         time.sleep(SLEEP_BETWEEN)
 
     print(f"\n完成。提取: {extracted} 条 | 跳过: {skipped} 篇 | 错误: {errors} 篇")
-    print(f"结果保存至 {OUTPUT_CSV}")
+    print(f"结果保存至 {args.output}")
 
 
 if __name__ == "__main__":

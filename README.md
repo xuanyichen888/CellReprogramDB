@@ -193,6 +193,22 @@ The script compares against `recipes_master_v2.csv` and `papers.csv` by default,
 so preview counts are reported as new candidate PMIDs rather than already-covered
 papers.
 
+To run a small, cost-controlled extraction pilot on a candidate CSV, write to a
+separate output and checkpoint first:
+
+```bash
+python extract_recipes.py \
+  --input outputs/broad_discovery_priority_YYYYMMDD.csv \
+  --limit 300 \
+  --output outputs/recipes_broad_priority_300_YYYYMMDD.csv \
+  --checkpoint outputs/checkpoint_extract_broad_priority_300_YYYYMMDD.json \
+  --dry-run
+```
+
+After confirming the selected PMIDs, remove `--dry-run` and run with
+`DEEPSEEK_API_KEY` set. Do not merge this pilot into `recipes_master_v2.csv`
+until a manual precision check passes.
+
 ---
 
 ## Tech Stack
