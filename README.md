@@ -64,10 +64,16 @@ QA / curation pipeline
 - Filters prior-work citations, failed experiments, and methods-only sentences at extraction time
 - Multi-round QA: evidence re-extraction with fulltext fallback; `needs_review` flagging; manual annotation integration
 
+**Recipe selection criteria**
+- Included entries must report a successful source-cell to target-cell conversion in the cited paper itself
+- A recipe must have named factor(s), chemicals, cytokines, miRNAs, knockdowns, or other defined perturbations
+- Prior-work citations, failed attempts, methods-only descriptions, review-only claims, and entries without specific factors are excluded or flagged for review
+- Evidence text should support actual conversion, not only expression, culture setup, or experimental intention
+
 **Confidence tiering**
 - `high`: source, target, and named factors all explicitly stated as a successful result
-- `medium`: likely conversion but partial or inferred details
-- `low`: weakly supported; hidden by default
+- `medium`: likely conversion but source, target, factors, or evidence provenance are partial, vague, or need full-text confirmation
+- `low`: inferred or weakly supported; hidden by default
 
 **Single-TF classification**
 - Distinguishes standalone valid single-factor conversions (NGN2, ASCL1, MYOD1, ETV2 …) from cocktail-member studies (OCT4, SOX2, KLF4 alone in an OSKM context)

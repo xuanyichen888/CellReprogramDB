@@ -528,10 +528,16 @@ with st.sidebar:
             help="Local full-text cache status. 'Full text available' does not mean the row has been manually checked.",
         )
 
-    with st.expander("Confidence criteria", expanded=False):
+    with st.expander("Recipe / confidence criteria", expanded=False):
         st.markdown(
-            "**High**: source cell, target cell, and named factor/cocktail are explicitly supported.  \n"
-            "**Medium**: conversion is likely, but source, target, or factors are partial, vague, or need full-text confirmation.  \n"
+            "**Included recipe**: the cited paper reports a successful source-cell to target-cell "
+            "conversion with named factor(s), chemicals, cytokines, miRNAs, or perturbations.  \n\n"
+            "**Excluded / flagged**: prior-work citations, failed attempts, methods-only setup, "
+            "review-only claims, missing factor names, or evidence that does not support actual conversion.  \n\n"
+            "**High**: source cell, target cell, and named factor/cocktail are explicitly supported "
+            "by the evidence text.  \n"
+            "**Medium**: conversion is likely, but source, target, factors, or evidence provenance "
+            "need fuller confirmation.  \n"
             "**Low**: recipe is inferred or weakly supported; low-confidence entries are hidden by default."
         )
 
