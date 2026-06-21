@@ -172,6 +172,27 @@ python extract_recipes.py    # Step 2: extract recipes
 python extract_evidence.py   # Step 3: extract evidence sentences
 ```
 
+### Broad Search Expansion
+
+The widened PubMed search terms can be previewed without an API key or file writes:
+
+```bash
+python fetch_pubmed.py --preview-only --categories broad_discovery
+```
+
+To fetch the first capped broad-search candidate set into a separate CSV without
+touching the main `papers.csv`:
+
+```bash
+python fetch_pubmed.py \
+  --categories broad_discovery \
+  --output outputs/broad_discovery_candidates_YYYYMMDD.csv
+```
+
+The script compares against `recipes_master_v2.csv` and `papers.csv` by default,
+so preview counts are reported as new candidate PMIDs rather than already-covered
+papers.
+
 ---
 
 ## Tech Stack
