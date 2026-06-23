@@ -648,7 +648,8 @@ elif hide_cocktail_tf and not show_validation_review and "single_tf_status" in f
     filtered = filtered[~filtered["single_tf_status"].isin(["cocktail_member", "unclear"])]
 
 if hide_needs_review and not show_validation_review and "validation_needs_review" in filtered.columns:
-    filtered = filtered[filtered["validation_needs_review"].apply(is_true).eq(False)]
+    # Treat blank as "not flagged"; only rows explicitly set to True are hidden.
+    filtered = filtered[~filtered["validation_needs_review"].apply(is_true)]
 
 if hide_validation_rejected and not show_validation_review:
     rejected = (
