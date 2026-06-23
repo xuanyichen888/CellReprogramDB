@@ -652,11 +652,12 @@ if hide_needs_review and not show_validation_review and "validation_needs_review
     filtered = filtered[~filtered["validation_needs_review"].apply(is_true)]
 
 if hide_validation_rejected and not show_validation_review:
-    rejected = (
-        (filtered["validation_action"].astype(str).str.lower().isin(HIDDEN_VALIDATION_ACTIONS)) |
-        (filtered["validation_recipe_valid"].astype(str).str.lower() == "no")
-    )
-    filtered = filtered[~rejected]
+    rejected_mask = pd.Series(False, index=filtered.index)
+    if "validation_action" in filtered.columns:
+        rejected_mask |= filtered["validation_action"].astype(str).str.lower().isin(HIDDEN_VALIDATION_ACTIONS)
+    if "validation_recipe_valid" in filtered.columns:
+        rejected_mask |= filtered["validation_recipe_valid"].astype(str).str.lower() == "no"
+    filtered = filtered[~rejected_mask]
 
 if show_validation_review and "validation_needs_review" in filtered.columns:
     filtered = filtered[filtered["validation_needs_review"].apply(is_true)]
