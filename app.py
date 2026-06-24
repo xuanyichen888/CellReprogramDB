@@ -674,6 +674,10 @@ if "year" in filtered.columns:
         ((filtered["year"] >= year_range[0]) & (filtered["year"] <= year_range[1]))
     ]
 
+# Ensure filtered is a clean DataFrame copy before stats (guards against
+# pandas CoW or serialization edge cases losing column references)
+filtered = filtered.reset_index(drop=True)
+
 # ── Stats row ─────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
 _metric_tgt_col = "target_cell_broad" if hide_dupes and dedup_mode == "broad" and "target_cell_broad" in filtered.columns else _tgt_col
