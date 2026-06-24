@@ -676,6 +676,15 @@ if "year" in filtered.columns:
 
 filtered = filtered.copy().reset_index(drop=True)
 
+if len(filtered) == 0:
+    _c1, _c2, _c3, _c4 = st.columns(4)
+    _c1.metric("Recipes shown", 0)
+    _c2.metric("Papers represented", 0)
+    _c3.metric("Target cell types", 0)
+    _c4.metric("Source cell types", 0)
+    st.info("No recipes match the current filters. Try adjusting your selection.")
+    st.stop()
+
 # ── Stats row ─────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
 _metric_tgt_col = "target_cell_broad" if hide_dupes and dedup_mode == "broad" and "target_cell_broad" in filtered.columns else _tgt_col
@@ -689,10 +698,12 @@ if hide_dupes and _support_pmids_col in filtered.columns:
     papers_metric = len(_paper_set)
 else:
     papers_metric = filtered["pmid"].nunique() if "pmid" in filtered.columns else 0
+_n_tgt = filtered[_metric_tgt_col].nunique() if _metric_tgt_col in filtered.columns else 0
+_n_src = filtered[_metric_src_col].nunique() if _metric_src_col in filtered.columns else 0
 c1.metric("Recipes shown",     len(filtered))
 c2.metric("Papers represented", papers_metric)
-c3.metric("Target cell types", filtered[_metric_tgt_col].nunique())
-c4.metric("Source cell types", filtered[_metric_src_col].nunique())
+c3.metric("Target cell types", _n_tgt)
+c4.metric("Source cell types", _n_src)
 
 # Show a note when default filters are active and not all entries are displayed
 _defaults_active = (
