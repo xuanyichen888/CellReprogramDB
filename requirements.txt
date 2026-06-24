@@ -3,4 +3,4 @@
 # every deploy. The curation/QA pipeline dependencies live in
 # requirements-pipeline.txt and are NOT needed to run the app.
 streamlit>=1.32.0
-pandas>=2.2.0,<3.0.0
+pandas>=2.2.0

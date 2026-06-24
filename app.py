@@ -674,9 +674,7 @@ if "year" in filtered.columns:
         ((filtered["year"] >= year_range[0]) & (filtered["year"] <= year_range[1]))
     ]
 
-# Ensure filtered is a clean DataFrame copy before stats (guards against
-# pandas CoW or serialization edge cases losing column references)
-filtered = filtered.reset_index(drop=True)
+filtered = filtered.copy().reset_index(drop=True)
 
 # ── Stats row ─────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
@@ -690,7 +688,7 @@ if hide_dupes and _support_pmids_col in filtered.columns:
         _paper_set.update(p.strip() for p in str(values).split(",") if p.strip())
     papers_metric = len(_paper_set)
 else:
-    papers_metric = filtered["pmid"].nunique()
+    papers_metric = filtered["pmid"].nunique() if "pmid" in filtered.columns else 0
 c1.metric("Recipes shown",     len(filtered))
 c2.metric("Papers represented", papers_metric)
 c3.metric("Target cell types", filtered[_metric_tgt_col].nunique())
