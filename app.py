@@ -73,7 +73,7 @@ def _file_mtime(path: Path) -> float:
 
 
 @st.cache_data
-def load_data(data_mtime: float, journals_mtime: float, fulltext_mtime: float):
+def load_data(data_mtime: float, journals_mtime: float, fulltext_mtime: float, _v: int = 2):
     df = pd.read_csv(DATA_PATH, dtype=str).fillna("")
     for col, default in {
         "title": "",
@@ -668,10 +668,11 @@ if (fc_min, fc_max) != (1, int(df["factor_count"].max())):
         (filtered["factor_count"] >= fc_min) & (filtered["factor_count"] <= fc_max)
     ]
 
-filtered = filtered[
-    (filtered["year"] == 0) |
-    ((filtered["year"] >= year_range[0]) & (filtered["year"] <= year_range[1]))
-]
+if "year" in filtered.columns:
+    filtered = filtered[
+        (filtered["year"] == 0) |
+        ((filtered["year"] >= year_range[0]) & (filtered["year"] <= year_range[1]))
+    ]
 
 # ── Stats row ─────────────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
