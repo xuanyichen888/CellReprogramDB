@@ -1,138 +1,131 @@
 """
-Fetch cell reprogramming patents from Google Patents and USPTO EFTS.
+Fetch cell reprogramming patents via Lens.org and PatentsView (USPTO).
+
+Lens.org API (preferred):
+  - Free academic API, 10K results/query, 50K req/month
+  - Get key at: https://www.lens.org/lens/user/subscriptions#api
+  - Set env:  LENS_API_KEY=<key>
+
+PatentsView API (USPTO fallback, no key needed):
+  - US patents only, good structured data
+  - Runs automatically if Lens key not set
 
 Outputs:
-  patents_raw.csv     — all fetched patents (deduped by patent number)
-  patents_done.json   — checkpoint (already-fetched numbers)
-
-Usage:
-  python3 fetch_patents.py              # fetch all queries
-  python3 fetch_patents.py --limit 50   # stop after N results per query
+  patents_raw.csv        — all fetched patents (deduped by number)
+  patents_done.json      — checkpoint
 
 Next step:
-  python3 extract_patent_recipes.py     # LLM extraction of recipes from patents
+  ANTHROPIC_API_KEY=<key> python3 extract_patent_recipes.py
 """
 
-import json, re, time, argparse
+import json, os, re, time, csv, argparse
 from pathlib import Path
-from urllib.parse import urlencode, quote
 import requests
 
-# ── Config ────────────────────────────────────────────────────────────────────
-CHECKPOINT   = Path("patents_done.json")
-OUTPUT_CSV   = Path("patents_raw.csv")
-PER_PAGE     = 10   # Google Patents max per page
-MAX_PAGES    = 15   # pages per query  (= 150 results max per query)
-SLEEP        = 1.2  # seconds between requests (be polite)
+CHECKPOINT = Path("patents_done.json")
+OUTPUT_CSV = Path("patents_raw.csv")
+SLEEP      = 1.0
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://patents.google.com/",
-    "X-Requested-With": "XMLHttpRequest",
-}
-
-# Focused queries — broad enough to get coverage, narrow enough to be relevant.
-# Each query is combined with "cell" to avoid purely chemical patents.
 QUERIES = [
-    "cell reprogramming transcription factor induced pluripotent",
-    "direct cell conversion lineage reprogramming",
-    "somatic cell reprogramming iPSC transcription",
-    "fibroblast reprogramming neuron direct conversion",
-    "transdifferentiation transcription factor",
-    "cardiomyocyte reprogramming direct conversion",
-    "hepatocyte reprogramming transcription factor",
+    "induced pluripotent stem cell OCT4 SOX2 KLF4",
+    "cell reprogramming transcription factor direct conversion",
+    "iPSC reprogramming Yamanaka method",
+    "chemical reprogramming pluripotent small molecule",
+    "fibroblast neuron direct conversion NeuroD1 ASCL1",
+    "cardiomyocyte reprogramming GATA4 MEF2C TBX5",
+    "hepatocyte reprogramming FOXA2 HNF4A",
+    "pancreatic beta cell PDX1 NGN3 reprogramming",
+    "transdifferentiation transcription factor lineage conversion",
     "T cell reprogramming transcription factor",
-    "chemical reprogramming induced pluripotent small molecule",
-    "iPSC induction OCT4 SOX2 KLF4",
-    "MYOD1 muscle reprogramming direct conversion",
-    "neuronal reprogramming ASCL1 NGN2",
+    "hematopoietic cell reprogramming",
+    "endothelial cell reprogramming ETV2",
+    "skeletal muscle MYOD1 direct reprogramming",
+    "neuronal reprogramming NGN2 brain direct",
 ]
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+FIELDNAMES = [
+    "patent_number", "title", "inventor", "assignee",
+    "priority_date", "filing_date", "grant_date",
+    "abstract", "url", "source", "query",
+]
 
-def load_checkpoint() -> set:
-    if CHECKPOINT.exists():
-        return set(json.loads(CHECKPOINT.read_text()))
-    return set()
 
-def save_checkpoint(done: set):
+# ── Checkpoint helpers ────────────────────────────────────────────────────────
+
+def load_done() -> set:
+    return set(json.loads(CHECKPOINT.read_text())) if CHECKPOINT.exists() else set()
+
+def save_done(done: set):
     CHECKPOINT.write_text(json.dumps(sorted(done)))
 
-def load_existing() -> list[dict]:
-    if not OUTPUT_CSV.exists():
-        return []
-    import csv
-    with open(OUTPUT_CSV, encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
-
 def append_rows(rows: list[dict]):
-    import csv
-    fieldnames = [
-        "patent_number", "title", "inventor", "assignee",
-        "priority_date", "filing_date", "grant_date", "publication_date",
-        "snippet", "url", "language", "query",
-    ]
     write_header = not OUTPUT_CSV.exists()
     with open(OUTPUT_CSV, "a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
         if write_header:
             w.writeheader()
         w.writerows(rows)
 
-def google_patents_search(query: str, page: int) -> tuple[list[dict], int]:
-    """Return (list_of_patent_dicts, total_pages)."""
-    # Build the url= parameter: encoded query string
-    qs = urlencode({"q": query, "num": PER_PAGE, "start": page * PER_PAGE})
-    api_url = f"https://patents.google.com/xhr/query?url={quote(qs, safe='')}"
+
+# ── Lens.org ──────────────────────────────────────────────────────────────────
+
+LENS_URL = "https://api.lens.org/patent/search"
+
+def lens_search(query: str, api_key: str, offset: int = 0, size: int = 100) -> tuple[list[dict], int]:
+    payload = {
+        "query": {"query_string": {"query": query, "fields": ["title", "abstract"]}},
+        "size": size,
+        "from": offset,
+        "include": ["lens_id", "title", "abstract", "date_published",
+                    "priority_date", "filing_date", "grant_date",
+                    "inventors", "applicants", "publication_number"],
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     try:
-        r = requests.get(api_url, headers=HEADERS, timeout=20)
+        r = requests.post(LENS_URL, json=payload, headers=headers, timeout=30)
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        print(f"    Google Patents error (page {page}): {e}")
+        print(f"    Lens error: {e}")
         return [], 0
 
-    results_obj = data.get("results", {})
-    total_pages = int(results_obj.get("total_num_pages", 0))
-    clusters    = results_obj.get("cluster", [])
+    total = data.get("total", 0)
+    rows = []
+    for item in data.get("data", []):
+        num = item.get("publication_number") or item.get("lens_id", "")
+        invs = ", ".join(
+            f"{p.get('first_name','')} {p.get('last_name','')}".strip()
+            for p in (item.get("inventors") or [])
+        )
+        assignees = ", ".join(
+            a.get("name", "") for a in (item.get("applicants") or [])
+        )
+        rows.append({
+            "patent_number": num,
+            "title":         item.get("title", ""),
+            "inventor":      invs,
+            "assignee":      assignees,
+            "priority_date": item.get("priority_date", ""),
+            "filing_date":   item.get("filing_date", ""),
+            "grant_date":    item.get("grant_date", ""),
+            "abstract":      (item.get("abstract") or "")[:2000],
+            "url":           f"https://www.lens.org/lens/patent/{item.get('lens_id','')}",
+            "source":        "lens",
+            "query":         query,
+        })
+    return rows, total
 
-    patents = []
-    for cluster in clusters:
-        for entry in cluster.get("result", []):
-            p = entry.get("patent", {})
-            num = p.get("publication_number", "").strip()
-            if not num:
-                continue
-            patents.append({
-                "patent_number":    num,
-                "title":            p.get("title", "").strip(),
-                "inventor":         p.get("inventor", "").strip(),
-                "assignee":         p.get("assignee", "").strip(),
-                "priority_date":    p.get("priority_date", ""),
-                "filing_date":      p.get("filing_date", ""),
-                "grant_date":       p.get("grant_date", ""),
-                "publication_date": p.get("publication_date", ""),
-                "snippet":          p.get("snippet", "").strip(),
-                "url":              f"https://patents.google.com/patent/{num}/en",
-                "language":         p.get("language", ""),
-                "query":            query,
-            })
-    return patents, total_pages
 
-
-def run(limit_per_query: int | None = None):
-    done = load_checkpoint()
+def run_lens(api_key: str, max_per_query: int = 500):
+    done = load_done()
     total_new = 0
 
     for query in QUERIES:
-        print(f"\nQuery: {query!r}")
-        new_for_query = 0
+        print(f"\n[Lens] {query!r}")
+        offset, new_q = 0, 0
 
-        for page in range(MAX_PAGES):
-            results, total_pages = google_patents_search(query, page)
+        while True:
+            results, total = lens_search(query, api_key, offset=offset)
             if not results:
                 break
 
@@ -141,28 +134,118 @@ def run(limit_per_query: int | None = None):
                 append_rows(fresh)
                 for r in fresh:
                     done.add(r["patent_number"])
-                save_checkpoint(done)
-                new_for_query += len(fresh)
+                save_done(done)
+                new_q    += len(fresh)
                 total_new += len(fresh)
 
-            print(f"  page {page+1}/{min(total_pages, MAX_PAGES)} "
-                  f"→ {len(results)} results, {len(fresh)} new  "
-                  f"(total new: {total_new})")
-
-            if page + 1 >= total_pages:
-                break
-            if limit_per_query and new_for_query >= limit_per_query:
-                print(f"  hit limit ({limit_per_query}), moving to next query")
+            print(f"  offset {offset:4d}/{total} → {len(fresh)} new  (query total: {new_q})")
+            offset += len(results)
+            if offset >= total or offset >= max_per_query or len(fresh) == 0:
                 break
             time.sleep(SLEEP)
 
-    print(f"\nDone. Total new patents written: {total_new}")
-    print(f"Output: {OUTPUT_CSV}  (total rows: {len(load_existing())})")
+    print(f"\nLens done. New patents: {total_new}")
 
+
+# ── PatentsView (USPTO) ────────────────────────────────────────────────────────
+
+PV_URL = "https://search.patentsview.org/api/v1/patent/"
+
+def patentsview_search(query: str, page: int = 1, per_page: int = 100) -> tuple[list[dict], int]:
+    params = {
+        "q":  json.dumps({"_text_phrase": {"patent_abstract": query}}),
+        "f":  json.dumps(["patent_number", "patent_title", "patent_date",
+                           "patent_abstract", "inventors.inventor_name_first",
+                           "inventors.inventor_name_last", "assignees.assignee_organization",
+                           "applications.app_date"]),
+        "o":  json.dumps({"page": page, "per_page": per_page}),
+    }
+    try:
+        r = requests.get(PV_URL, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"    PatentsView error: {e}")
+        return [], 0
+
+    total = data.get("total_patent_count", 0)
+    rows = []
+    for p in data.get("patents") or []:
+        num = p.get("patent_number", "")
+        invs = ", ".join(
+            f"{inv.get('inventor_name_first','')} {inv.get('inventor_name_last','')}".strip()
+            for inv in (p.get("inventors") or [])
+        )
+        assignee = ", ".join(
+            a.get("assignee_organization", "") for a in (p.get("assignees") or [])
+        )
+        rows.append({
+            "patent_number": f"US{num}",
+            "title":         p.get("patent_title", ""),
+            "inventor":      invs,
+            "assignee":      assignee,
+            "priority_date": "",
+            "filing_date":   (p.get("applications") or [{}])[0].get("app_date", ""),
+            "grant_date":    p.get("patent_date", ""),
+            "abstract":      (p.get("patent_abstract") or "")[:2000],
+            "url":           f"https://patents.google.com/patent/US{num}/en",
+            "source":        "patentsview",
+            "query":         query,
+        })
+    return rows, total
+
+
+def run_patentsview(max_per_query: int = 300):
+    done = load_done()
+    total_new = 0
+
+    for query in QUERIES:
+        print(f"\n[PatentsView] {query!r}")
+        page, new_q = 1, 0
+
+        while True:
+            results, total = patentsview_search(query, page=page)
+            if not results:
+                break
+
+            fresh = [r for r in results if r["patent_number"] not in done]
+            if fresh:
+                append_rows(fresh)
+                for r in fresh:
+                    done.add(r["patent_number"])
+                save_done(done)
+                new_q    += len(fresh)
+                total_new += len(fresh)
+
+            offset = (page - 1) * 100 + len(results)
+            print(f"  page {page}, offset {offset}/{total} → {len(fresh)} new  (query total: {new_q})")
+
+            if offset >= total or offset >= max_per_query or len(fresh) == 0:
+                break
+            page += 1
+            time.sleep(SLEEP)
+
+    print(f"\nPatentsView done. New patents: {total_new}")
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Max new patents per query (for testing)")
+    parser.add_argument("--source", choices=["lens", "patentsview", "both"],
+                        default="both", help="Which API to use")
+    parser.add_argument("--max", type=int, default=500,
+                        help="Max patents per query")
     args = parser.parse_args()
-    run(limit_per_query=args.limit)
+
+    lens_key = os.environ.get("LENS_API_KEY", "")
+
+    if args.source in ("lens", "both"):
+        if lens_key:
+            run_lens(lens_key, max_per_query=args.max)
+        else:
+            print("LENS_API_KEY not set — skipping Lens.org")
+            print("Get a free key at: https://www.lens.org/lens/user/subscriptions#api")
+
+    if args.source in ("patentsview", "both"):
+        run_patentsview(max_per_query=args.max)
