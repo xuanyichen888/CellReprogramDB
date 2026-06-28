@@ -40,6 +40,25 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── Synonym expansion for common search terms ─────────────────────────────────
+# Keys are normalized (lowercase, no punctuation). Values are lists of
+# alternative normalized strings that will be OR-ed into the query.
+SEARCH_SYNONYMS: dict[str, list[str]] = {
+    "yamanaka": ["oct4 sox2 klf4 myc", "oskm", "ips"],
+    "oskm":     ["oct4 sox2 klf4 myc", "yamanaka"],
+    "oskmn":    ["oct4 sox2 klf4 myc nanog"],
+    "ips":      ["induced pluripotent", "ips cell", "ipsc"],
+    "ipsc":     ["induced pluripotent", "ips cell"],
+    "induced pluripotent":  ["ipsc", "ips cell"],
+    "t cell":   ["t lymphocyte", "cd4", "cd8", "treg", "th1", "th17", "tcell"],
+    "tcell":    ["t cell", "t lymphocyte"],
+    "b cell":   ["b lymphocyte", "bcell"],
+    "nk cell":  ["natural killer"],
+    "cardiomyocyte": ["cardiac", "heart muscle"],
+    "hepatocyte":    ["liver cell"],
+    "beta cell":     ["pancreatic beta", "insulin producing"],
+}
+
 # ── Broad biological cell categories (for coarse filtering) ────────────────────
 CELL_CATEGORY_PATTERNS = {
     "immune": r"\bt[\s-]?cell|t lymph|b[\s-]?cell|b lymph|treg|th1|th17|tfh|cd4|cd8|macrophage|monocyte|dendritic|nk cell|natural killer|microglia|mast cell|neutrophil|thymocyte|lymphocyte|myeloid|leukocyte|granulocyte",
@@ -565,27 +584,43 @@ with st.sidebar:
 # ── Apply filters ─────────────────────────────────────────────────────────────
 filtered = df.copy()
 
-if search:
-    def _normalize_query(value):
-        text = str(value).lower()
-        text = (
-            text.replace("β", "beta")
-                .replace("α", "alpha")
-                .replace("γ", "gamma")
-                .replace("δ", "delta")
-        )
-        text = re.sub(r"[-_/]+", " ", text)
-        text = re.sub(r"[^a-z0-9]+", " ", text)
-        return re.sub(r"\s+", " ", text).strip()
+def _normalize_query(value: str) -> str:
+    text = str(value).lower()
+    text = (
+        text.replace("β", "beta")
+            .replace("α", "alpha")
+            .replace("γ", "gamma")
+            .replace("δ", "delta")
+    )
+    text = re.sub(r"[-_/]+", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
-    query = _normalize_query(search)
+
+def _token_mask(blob_series: pd.Series, phrase: str) -> pd.Series:
+    """Return a boolean mask: all tokens in `phrase` must appear in blob."""
+    tokens = phrase.split()
+    mask = pd.Series(True, index=blob_series.index)
+    for tok in tokens:
+        # Leading word-boundary; no trailing boundary so "t cell" matches "t cells"
+        mask &= blob_series.str.contains(r"\b" + re.escape(tok), na=False, regex=True)
+    return mask
+
+
+if search:
+    raw = search.strip()
+    query = _normalize_query(raw)
     if query:
-        # Word-boundary match so "T cell" / "T-cell" hit genuine T cells, not
-        # substrings inside words like "pluripoten[t cell]s" or "fibroblas[t cell]".
-        mask = filtered["_search_blob"].str.contains(
-            r"\b" + re.escape(query) + r"\b", na=False, regex=True
-        )
-        filtered = filtered[mask]
+        # Direct PMID lookup (pure digit string)
+        if re.match(r"^\d+$", raw):
+            filtered = filtered[filtered["pmid"].astype(str) == raw]
+        else:
+            # Primary match
+            mask = _token_mask(filtered["_search_blob"], query)
+            # Synonym OR-expansion
+            for syn in SEARCH_SYNONYMS.get(query, []):
+                mask |= _token_mask(filtered["_search_blob"], _normalize_query(syn))
+            filtered = filtered[mask]
 
 if target_sel:
     filtered = filtered[filtered[_tgt_col].isin(target_sel)]
@@ -733,16 +768,49 @@ else:
 
 st.divider()
 
+# ── Source / target context header ───────────────────────────────────────────
+# When the user has filtered to a single source or target, surface that context
+# above the table so it doesn't need to repeat in every row.
+_src_vals = filtered[_src_col].dropna().unique().tolist()
+_tgt_vals = filtered[_tgt_col].dropna().unique().tolist()
+_context_parts = []
+if source_sel and len(_src_vals) == 1:
+    _context_parts.append(f"Source: **{_src_vals[0]}**")
+if target_sel and len(_tgt_vals) == 1:
+    _context_parts.append(f"Target: **{_tgt_vals[0]}**")
+if _context_parts:
+    st.markdown("  ·  ".join(_context_parts))
+
+# ── TF-only / composition breakdown ──────────────────────────────────────────
+def _has_tf(s):
+    return any("tf" in t.strip().lower() for t in str(s).split(",") if t.strip())
+
+def _has_sm(s):
+    return any("small" in t.strip().lower() for t in str(s).split(",") if t.strip())
+
+_tf_only  = filtered["factor_type"].apply(lambda s: _has_tf(s) and not _has_sm(s))
+_sm_only  = filtered["factor_type"].apply(lambda s: _has_sm(s) and not _has_tf(s))
+_mixed    = filtered["factor_type"].apply(lambda s: _has_tf(s) and _has_sm(s))
+_other    = ~(_tf_only | _sm_only | _mixed)
+
+_bc1, _bc2, _bc3, _bc4 = st.columns(4)
+_bc1.metric("TF-only recipes",          int(_tf_only.sum()))
+_bc2.metric("Small-molecule-only",      int(_sm_only.sum()))
+_bc3.metric("TF + small molecule",      int(_mixed.sum()))
+_bc4.metric("Other / unclassified",     int(_other.sum()))
+
 # ── Main table ────────────────────────────────────────────────────────────────
 support_count_col = f"{_support_prefix}_supporting_paper_count"
 support_pmids_preview_col = f"{_support_prefix}_supporting_pmids_preview"
 support_papers_preview_col = f"{_support_prefix}_supporting_papers_preview"
+# Factors, type, species come FIRST for quick scanning; source/target follow;
+# metadata (PMID, title, journal…) at the end.
 display_cols = [
+    "factors","factor_type","species",
+    "source_cell","target_cell",
     "pmid","title",
     support_count_col, support_pmids_preview_col,
-    "source_cell","target_cell",
-    "factors","factor_type","species","year",
-    "journal","confidence","paper_type","conversion_scope",
+    "year","journal","confidence","paper_type","conversion_scope",
     "evidence_source","fulltext_status","evidence_sentence",
     support_papers_preview_col,
 ]
@@ -775,6 +843,11 @@ st.dataframe(
     use_container_width=True,
     height=540,
     column_config={
+        "factors":           st.column_config.TextColumn("Factors",     width=260),
+        "factor_type":       st.column_config.TextColumn("Type",        width=130),
+        "species":           st.column_config.TextColumn("Species",     width=85),
+        "source_cell":       st.column_config.TextColumn("Source cell", width=170),
+        "target_cell":       st.column_config.TextColumn("Target cell", width=170),
         "pmid":              st.column_config.TextColumn("PMID",        width=80),
         "pmid_link":         st.column_config.LinkColumn("↗",           width=40,
                                                           display_text="🔗"),
@@ -782,11 +855,6 @@ st.dataframe(
         support_count_col:    st.column_config.NumberColumn("Supporting papers", width=120, format="%d"),
         support_pmids_preview_col: st.column_config.TextColumn("Supporting PMIDs", width=260),
         support_papers_preview_col: st.column_config.TextColumn("Supporting papers preview", width=420),
-        "source_cell":       st.column_config.TextColumn("Source cell", width=170),
-        "target_cell":       st.column_config.TextColumn("Target cell", width=170),
-        "factors":           st.column_config.TextColumn("Factors",     width=230),
-        "factor_type":       st.column_config.TextColumn("Type",        width=130),
-        "species":           st.column_config.TextColumn("Species",     width=80),
         "year":              st.column_config.NumberColumn("Year",      width=65,
                                                             format="%d"),
         "journal":           st.column_config.TextColumn("Journal",     width=200),
