@@ -59,6 +59,36 @@ SEARCH_SYNONYMS: dict[str, list[str]] = {
     "beta cell":     ["pancreatic beta", "insulin producing"],
 }
 
+# Multi-word terms that should stay together as one search unit. Without this,
+# "T cell" becomes "t" AND "cell", which is far too broad.
+SEARCH_PHRASES = sorted({
+    "t cell",
+    "t lymphocyte",
+    "b cell",
+    "b lymphocyte",
+    "nk cell",
+    "natural killer",
+    "ips cell",
+    "induced pluripotent",
+    "beta cell",
+    "pancreatic beta",
+    "heart muscle",
+    "motor neuron",
+    "embryonic stem",
+    "stem cell",
+    "small molecule",
+}, key=lambda value: len(value.split()), reverse=True)
+
+COMMON_QUERY_SINGULARS = {
+    "cells": "cell",
+    "lymphocytes": "lymphocyte",
+    "fibroblasts": "fibroblast",
+    "neurons": "neuron",
+    "hepatocytes": "hepatocyte",
+    "cardiomyocytes": "cardiomyocyte",
+    "molecules": "molecule",
+}
+
 # ── Broad biological cell categories (for coarse filtering) ────────────────────
 CELL_CATEGORY_PATTERNS = {
     "immune": r"\bt[\s-]?cell|t lymph|b[\s-]?cell|b lymph|treg|th1|th17|tfh|cd4|cd8|macrophage|monocyte|dendritic|nk cell|natural killer|microglia|mast cell|neutrophil|thymocyte|lymphocyte|myeloid|leukocyte|granulocyte",
@@ -594,17 +624,58 @@ def _normalize_query(value: str) -> str:
     )
     text = re.sub(r"[-_/]+", " ", text)
     text = re.sub(r"[^a-z0-9]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    tokens = [COMMON_QUERY_SINGULARS.get(tok, tok) for tok in text.split()]
+    return " ".join(tokens)
 
 
 def _token_mask(blob_series: pd.Series, phrase: str) -> pd.Series:
     """Return a boolean mask: all tokens in `phrase` must appear in blob."""
-    tokens = phrase.split()
+    tokens = [tok for tok in phrase.split() if len(tok) > 1 or tok.isdigit()]
+    if not tokens:
+        return pd.Series(False, index=blob_series.index)
     mask = pd.Series(True, index=blob_series.index)
     for tok in tokens:
         # Leading word-boundary; no trailing boundary so "t cell" matches "t cells"
         mask &= blob_series.str.contains(r"\b" + re.escape(tok), na=False, regex=True)
     return mask
+
+
+def _phrase_mask(blob_series: pd.Series, phrase: str) -> pd.Series:
+    tokens = phrase.split()
+    if not tokens:
+        return pd.Series(False, index=blob_series.index)
+    pattern = r"\b" + r"\s+".join(re.escape(tok) for tok in tokens)
+    return blob_series.str.contains(pattern, na=False, regex=True)
+
+
+def _query_units(query: str) -> list[tuple[str, bool]]:
+    tokens = query.split()
+    units: list[tuple[str, bool]] = []
+    i = 0
+    while i < len(tokens):
+        matched = None
+        for phrase in SEARCH_PHRASES:
+            phrase_tokens = phrase.split()
+            if tokens[i:i + len(phrase_tokens)] == phrase_tokens:
+                matched = phrase
+                break
+        if matched:
+            units.append((matched, True))
+            i += len(matched.split())
+        else:
+            units.append((tokens[i], False))
+            i += 1
+    return units
+
+
+def _variant_mask(blob_series: pd.Series, variant: str, phrase_only: bool) -> pd.Series:
+    variant = _normalize_query(variant)
+    if not variant:
+        return pd.Series(False, index=blob_series.index)
+    if phrase_only or variant in SEARCH_PHRASES:
+        return _phrase_mask(blob_series, variant)
+    return _token_mask(blob_series, variant)
 
 
 if search:
@@ -615,11 +686,13 @@ if search:
         if re.match(r"^\d+$", raw):
             filtered = filtered[filtered["pmid"].astype(str) == raw]
         else:
-            # Primary match
-            mask = _token_mask(filtered["_search_blob"], query)
-            # Synonym OR-expansion
-            for syn in SEARCH_SYNONYMS.get(query, []):
-                mask |= _token_mask(filtered["_search_blob"], _normalize_query(syn))
+            # AND across search units; OR within each unit's synonym expansion.
+            mask = pd.Series(True, index=filtered.index)
+            for unit, phrase_only in _query_units(query):
+                unit_mask = _variant_mask(filtered["_search_blob"], unit, phrase_only)
+                for syn in SEARCH_SYNONYMS.get(unit, []):
+                    unit_mask |= _variant_mask(filtered["_search_blob"], syn, False)
+                mask &= unit_mask
             filtered = filtered[mask]
 
 if target_sel:
@@ -774,23 +847,34 @@ st.divider()
 _src_vals = filtered[_src_col].dropna().unique().tolist()
 _tgt_vals = filtered[_tgt_col].dropna().unique().tolist()
 _context_parts = []
-if source_sel and len(_src_vals) == 1:
+_hide_source_column = bool(source_sel and len(_src_vals) == 1)
+_hide_target_column = bool(target_sel and len(_tgt_vals) == 1)
+if _hide_source_column:
     _context_parts.append(f"Source: **{_src_vals[0]}**")
-if target_sel and len(_tgt_vals) == 1:
+if _hide_target_column:
     _context_parts.append(f"Target: **{_tgt_vals[0]}**")
 if _context_parts:
     st.markdown("  ·  ".join(_context_parts))
 
 # ── TF-only / composition breakdown ──────────────────────────────────────────
-def _has_tf(s):
-    return any("tf" in t.strip().lower() for t in str(s).split(",") if t.strip())
+def _factor_type_set(s):
+    return {t.strip().lower() for t in str(s).split(",") if t.strip()}
 
-def _has_sm(s):
-    return any("small" in t.strip().lower() for t in str(s).split(",") if t.strip())
 
-_tf_only  = filtered["factor_type"].apply(lambda s: _has_tf(s) and not _has_sm(s))
-_sm_only  = filtered["factor_type"].apply(lambda s: _has_sm(s) and not _has_tf(s))
-_mixed    = filtered["factor_type"].apply(lambda s: _has_tf(s) and _has_sm(s))
+def _is_tf_type(t):
+    return t in {"tf", "transcription_factor", "transcription factor"}
+
+
+def _is_sm_type(t):
+    return "small" in t or t in {"chemical", "compound"}
+
+
+_factor_type_sets = filtered["factor_type"].apply(_factor_type_set)
+_tf_only  = _factor_type_sets.apply(lambda ts: bool(ts) and all(_is_tf_type(t) for t in ts))
+_sm_only  = _factor_type_sets.apply(lambda ts: bool(ts) and all(_is_sm_type(t) for t in ts))
+_mixed    = _factor_type_sets.apply(
+    lambda ts: any(_is_tf_type(t) for t in ts) and any(_is_sm_type(t) for t in ts)
+)
 _other    = ~(_tf_only | _sm_only | _mixed)
 
 _bc1, _bc2, _bc3, _bc4 = st.columns(4)
@@ -807,13 +891,18 @@ support_papers_preview_col = f"{_support_prefix}_supporting_papers_preview"
 # metadata (PMID, title, journal…) at the end.
 display_cols = [
     "factors","factor_type","species",
-    "source_cell","target_cell",
+]
+if not _hide_source_column:
+    display_cols.append("source_cell")
+if not _hide_target_column:
+    display_cols.append("target_cell")
+display_cols.extend([
     "pmid","title",
     support_count_col, support_pmids_preview_col,
     "year","journal","confidence","paper_type","conversion_scope",
     "evidence_source","fulltext_status","evidence_sentence",
     support_papers_preview_col,
-]
+])
 if show_validation_review:
     display_cols.extend([
         "validation_action",
